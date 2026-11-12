@@ -1,0 +1,19 @@
+# Rustic plugin manifest; the format is specified in docs/PLUGIN_FORMAT.md.
+[plugin]
+id = "essentials-lite"
+name = "Essentials Lite"
+version = "0.1.0"
+api = "0.1"
+authors = ["Rustic contributors"]
+license = "MIT OR Apache-2.0"
+entry = "essentials_lite.wasm"
+description = "Spawn, homes, warps, teleport requests, /back, private messages and broadcasts, with warmups and cooldowns."
+
+[dependencies]
+# Loaded after these when they are installed: the chat-meta prefix in /msg, the economy cost of
+# /sethome. Both are optional; without them the plugin degrades gracefully.
+optional = { perms = "*" }
+
+[capabilities]
+# Preopen the data folder as "/" (config.toml).
+filesystem = "data-folder"

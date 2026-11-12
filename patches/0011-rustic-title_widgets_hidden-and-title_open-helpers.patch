@@ -1,0 +1,467 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: BouBou <69978359+BouBouw@users.noreply.github.com>
+Date: Thu, 12 Nov 2026 16:00:00 +0100
+Subject: [PATCH] rustic: title_widgets_hidden and title_open helpers
+
+A client mod that draws its own main menu over the title's panorama hides the
+main title's widgets (title_widgets_hidden) and presses its buttons for the
+player as a click does (title_open). Rustic ADR 0011, U13.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/horizon-client/src/game.rs                  |   8 +
+ .../horizon-client/src/game/native_title_screen.rs |  94 +++++++++
+ crates/horizon-client/src/game/window_handler.rs   |   8 +
+ crates/horizon-client/src/title.rs                 | 214 ++++++++++++++++++++-
+ tools/native-hook-fragments/title_screen.json      |  16 ++
+ 5 files changed, 339 insertions(+), 1 deletion(-)
+
+diff --git a/crates/horizon-client/src/game.rs b/crates/horizon-client/src/game.rs
+index ef272de00..20a379faf 100644
+--- a/crates/horizon-client/src/game.rs
++++ b/crates/horizon-client/src/game.rs
+@@ -333,6 +333,7 @@ pub(crate) mod native_tasks;
+ mod native_terrain_model;
+ pub mod native_text_field;
+ mod native_ticks;
++mod native_title_screen;
+ mod native_travel;
+ mod native_view_distance;
+ mod native_visuals;
+@@ -2942,6 +2943,10 @@ struct Game<'a> {
+     rendered_mobs: std::cell::Cell<usize>,
+     /// Whether a native mod requested background blur for this frame (`apply_screen_blur`).
+     screen_blur_requested: std::cell::Cell<bool>,
++    /// A native mod draws the main title itself (`native_title_widgets_hidden`).
++    title_widgets_hidden: std::cell::Cell<bool>,
++    /// A main title button a native mod pressed (`native_title_open`), for `idle`.
++    title_open_request: std::cell::Cell<Option<horizon_client::title::MainButton>>,
+     /// `ServerChunkCache.lastSpawnState` of each level: its spawnable chunks
+     /// and each `MobCategory`'s count.
+     spawn_counts: HashMap<Dim, (i32, [i32; 8])>,
+@@ -5869,6 +5874,7 @@ impl Game<'_> {
+         }
+         if let Some(title) = &mut self.title {
+             title.poll_backup();
++            title.set_widgets_hidden(self.title_widgets_hidden.get());
+             if std::mem::take(&mut title.onboarding_finished) {
+                 // Options.onboardingAccessibilityFinished.
+                 self.settings.file.set(
+@@ -12030,6 +12036,8 @@ impl<'a> Game<'a> {
+             gpu_culling_auto: horizon_client::autotune::GpuCullingAuto::new(),
+             rendered_mobs: Default::default(),
+             screen_blur_requested: Default::default(),
++            title_widgets_hidden: Default::default(),
++            title_open_request: Default::default(),
+             spawn_counts: HashMap::new(),
+             pause_menu: true,
+             pause_focus: None,
+diff --git a/crates/horizon-client/src/game/native_title_screen.rs b/crates/horizon-client/src/game/native_title_screen.rs
+new file mode 100644
+index 000000000..5eacc5cf1
+--- /dev/null
++++ b/crates/horizon-client/src/game/native_title_screen.rs
+@@ -0,0 +1,94 @@
++//! The main title for trait mods that draw it themselves: hiding its own widgets
++//! (`native_title_widgets_hidden`) and pressing its buttons for the player
++//! (`native_title_open`). API @API:title_screen@.
++use super::{Game, Screen};
++use horizon_client::title::{Action, MainButton, Mode};
++
++/// Whether `button` can be pressed: the main title is the screen on top (no
++/// Options, connect or load over it) and the button is on (Multiplayer and
++/// Realms are off for an account that may not play online).
++fn pressable(main_on_top: bool, allows_multiplayer: bool, button: MainButton) -> bool {
++    main_on_top
++        && (allows_multiplayer || !matches!(button, MainButton::Multiplayer | MainButton::Realms))
++}
++
++impl Game<'_> {
++    /// The main title (`Mode::Main`) is the screen the player sees.
++    fn title_main_on_top(&self) -> bool {
++        self.screen == Screen::Playing
++            && self.screen_hooks_open()
++            && self
++                .title
++                .as_ref()
++                .is_some_and(|t| matches!(t.mode, Mode::Main))
++    }
++    /// Hides (true) or shows again (false) the main title's own widgets — the
++    /// logo, the splash, its buttons, the version line and the bottom notice —
++    /// for a mod that draws its own main menu over the panorama in
++    /// `native_screen_render_post` (screen id `title`) and presses the title's
++    /// buttons with `native_title_open`. Hidden, the main title's buttons take
++    /// no click, Tab or Enter either; every other title screen (world list,
++    /// multiplayer, realms...) is unchanged. It holds for this window until
++    /// changed, through every return to the title, and takes effect from the
++    /// next frame. Client only. API @API:title_screen@.
++    pub(super) fn native_title_widgets_hidden(&self, hidden: bool) {
++        self.title_widgets_hidden.set(hidden);
++    }
++    /// Presses one of the main title's buttons for the player, exactly as a
++    /// click on it: `singleplayer`, `multiplayer`, `realms`, `friends` (Join a
++    /// Friend), `options`, `language`, `accessibility`, `credits` (the bottom
++    /// notice) or `quit`, with the button's sound. The press runs once the
++    /// hooks of this event are done, before the next frame; a later call in the
++    /// same event replaces it. True when it will run: false for another name,
++    /// while the main title is not the screen shown (a world, Options or another
++    /// title screen is), and for `multiplayer` and `realms` when the account
++    /// may not play online (their buttons are off). Works whether the title's
++    /// own widgets are hidden or not. Client only. API @API:title_screen@.
++    pub(super) fn native_title_open(&self, button: &str) -> bool {
++        let Some(button) = MainButton::parse(button) else {
++            return false;
++        };
++        let allows = self.title.as_ref().is_some_and(|t| t.allows_multiplayer);
++        if !pressable(self.title_main_on_top(), allows, button) {
++            return false;
++        }
++        self.title_open_request.set(Some(button));
++        true
++    }
++    /// The press `native_title_open` asked for, done on the title: the action
++    /// for `title_action` to run, as after a click. None with no press, or
++    /// when the title changed since.
++    pub(super) fn take_title_open_request(&mut self) -> Option<Action> {
++        let button = self.title_open_request.take()?;
++        if !self.title_main_on_top() {
++            return None;
++        }
++        let action = self.title.as_mut()?.press_main(button)?;
++        self.save_title_options();
++        self.audio.play_button_click();
++        Some(action)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn a_button_is_pressable_only_on_the_main_title_and_when_it_is_on() {
++        for button in [
++            MainButton::Singleplayer,
++            MainButton::Options,
++            MainButton::Quit,
++            MainButton::Friends,
++        ] {
++            assert!(pressable(true, false, button));
++            assert!(!pressable(false, true, button));
++        }
++        for button in [MainButton::Multiplayer, MainButton::Realms] {
++            assert!(pressable(true, true, button));
++            assert!(!pressable(true, false, button));
++            assert!(!pressable(false, true, button));
++        }
++    }
++}
+diff --git a/crates/horizon-client/src/game/window_handler.rs b/crates/horizon-client/src/game/window_handler.rs
+index 47f57f650..d625882a0 100644
+--- a/crates/horizon-client/src/game/window_handler.rs
++++ b/crates/horizon-client/src/game/window_handler.rs
+@@ -214,6 +214,14 @@ impl Game<'_> {
+             event_loop.exit();
+             return;
+         }
++        // A main title button a native mod pressed for the player (`native_title_open`).
++        if let Some(action) = self.take_title_open_request()
++            && let Err(error) = self.title_action(event_loop, action)
++        {
++            self.error = Some(error);
++            event_loop.exit();
++            return;
++        }
+         horizon_client::spans::time("server_packs", || self.tick_server_packs());
+         horizon_client::spans::time("control", || self.poll_control(event_loop));
+         if self.pending_save.is_some() {
+diff --git a/crates/horizon-client/src/title.rs b/crates/horizon-client/src/title.rs
+index 832939290..5da0e7710 100644
+--- a/crates/horizon-client/src/title.rs
++++ b/crates/horizon-client/src/title.rs
+@@ -476,6 +476,59 @@ pub struct Title {
+     preparing: bool,
+     /// The confirm screen's Back: the Data Packs screen reopens.
+     reopen_data_packs: bool,
++    /// A native mod draws the main title itself (`native_title_widgets_hidden`): its logo,
++    /// splash, buttons and corner texts are neither drawn nor pressed, the panorama stays.
++    widgets_hidden: bool,
++}
++
++/// A button of the main title, as a native mod presses it for the player
++/// (`native_title_open`): exactly what the button does there.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum MainButton {
++    Singleplayer,
++    Multiplayer,
++    Realms,
++    /// Horizon's Join a Friend (the friends icon): the invite-code screen.
++    Friends,
++    Options,
++    Language,
++    Accessibility,
++    /// The bottom notice (`PlainTextButton`): Credits & Attribution.
++    Credits,
++    Quit,
++}
++
++impl MainButton {
++    /// The button named `name`: `singleplayer`, `multiplayer`, `realms`,
++    /// `friends`, `options`, `language`, `accessibility`, `credits`, `quit`.
++    pub fn parse(name: &str) -> Option<Self> {
++        Some(match name {
++            "singleplayer" => Self::Singleplayer,
++            "multiplayer" => Self::Multiplayer,
++            "realms" => Self::Realms,
++            "friends" => Self::Friends,
++            "options" => Self::Options,
++            "language" => Self::Language,
++            "accessibility" => Self::Accessibility,
++            "credits" => Self::Credits,
++            "quit" => Self::Quit,
++            _ => return None,
++        })
++    }
++    /// Its id among the main title's buttons (`Title::buttons`); the credits are no button.
++    fn id(self) -> Option<u8> {
++        Some(match self {
++            Self::Singleplayer => 1,
++            Self::Quit => 2,
++            Self::Options => 3,
++            Self::Multiplayer => 4,
++            Self::Friends => 5,
++            Self::Language => 6,
++            Self::Accessibility => 7,
++            Self::Realms => 8,
++            Self::Credits => return None,
++        })
++    }
+ }
+ pub(crate) struct Button {
+     x: f32,
+@@ -853,6 +906,7 @@ impl Title {
+             confirm_experiments: RefCell::new(None),
+             preparing: false,
+             reopen_data_packs: false,
++            widgets_hidden: false,
+         }
+     }
+     /// Vanilla bypasses the selector when there are no saves.
+@@ -1393,6 +1447,39 @@ impl Title {
+             realm: true,
+         })
+     }
++    /// Whether a native mod draws the main title in place of its own widgets.
++    pub fn widgets_hidden(&self) -> bool {
++        self.widgets_hidden
++    }
++    /// Hides (or shows again) the main title's own widgets: the logo, the splash, the
++    /// buttons, the version line and the bottom notice. Hidden, the main title draws
++    /// nothing over the panorama and its buttons take no click, Tab or Enter; the other
++    /// title screens (world list, multiplayer...) are not affected.
++    pub fn set_widgets_hidden(&mut self, hidden: bool) {
++        if hidden && !self.widgets_hidden && matches!(self.mode, Mode::Main) {
++            self.focused_button = None;
++            self.credits_button.set([0.0; 4]);
++        }
++        self.widgets_hidden = hidden;
++    }
++    /// Presses `button` of the main title for the player, hidden widgets or not: the
++    /// same as a click on it, so the caller runs the returned action as a click's.
++    /// None when the title is not on its main screen, and for Multiplayer and Realms
++    /// while the account may not play online (their buttons are off then).
++    pub fn press_main(&mut self, button: MainButton) -> Option<Action> {
++        if !matches!(self.mode, Mode::Main) {
++            return None;
++        }
++        let Some(id) = button.id() else {
++            return Some(Action::Credits);
++        };
++        if matches!(button, MainButton::Multiplayer | MainButton::Realms)
++            && !self.allows_multiplayer
++        {
++            return None;
++        }
++        Some(self.click_action(0.0, 0.0, (0.0, 0.0), Some(id)))
++    }
+     pub fn take_open_request(&mut self) -> Option<String> {
+         self.open_request.take()
+     }
+@@ -1891,6 +1978,8 @@ impl Title {
+             action: None,
+         };
+         match &self.mode {
++            // A native mod draws and presses its own (`set_widgets_hidden`).
++            Mode::Main if self.widgets_hidden => Vec::new(),
+             Mode::Main => {
+                 let cx = (w / 2.0).floor();
+                 let y = (h / 4.0).floor() + 48.0;
+@@ -2692,6 +2781,8 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
+             crate::widgets::begin_screen(|| info);
+         }
+         match &self.mode {
++            // The panorama only: a native mod draws the rest over it.
++            Mode::Main if self.widgets_hidden => self.credits_button.set([0.0; 4]),
+             Mode::Main => {
+                 draw_logo(atlas, batch, w);
+                 if !hide_splash && let Some(splash) = self.splash.as_deref() {
+@@ -3645,7 +3736,7 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
+                 return (Action::None, true);
+             }
+         }
+-        if matches!(self.mode, Mode::Main) {
++        if matches!(self.mode, Mode::Main) && !self.widgets_hidden {
+             let [bx, by, bw, bh] = self.credits_button.get();
+             if (bx..bx + bw).contains(&x) && (by..by + bh).contains(&y) {
+                 return (Action::Credits, true);
+@@ -5468,4 +5559,125 @@ mod classic_tests {
+             );
+         }
+     }
++
++    fn fresh() -> Title {
++        Title::new(
++            PathBuf::new(),
++            Path::new("/nonexistent/horizon-test-resources"),
++        )
++    }
++
++    /// A native mod that draws the main title itself hides the title's own
++    /// widgets: nothing is drawn over the panorama and no click, Tab or Enter
++    /// reaches the buttons that are no longer seen. Shown again, they are back.
++    #[test]
++    fn hidden_main_widgets_are_neither_drawn_nor_pressed() {
++        let atlas = HudAtlas::build(Path::new("/nonexistent/horizon-test-resources")).unwrap();
++        let (w, h) = (427.0, 240.0);
++        let (cx, y) = ((w / 2.0f32).floor(), (h / 4.0f32).floor() + 48.0);
++        let mut title = fresh();
++        title.splash = Some("Splash!".into());
++        let mut shown = HudBatch::new([854, 480]);
++        title.draw(&atlas, &mut shown, (0.0, 0.0), false);
++        assert!(!shown.vertices.is_empty());
++        title.set_widgets_hidden(true);
++        let mut batch = HudBatch::new([854, 480]);
++        title.draw(&atlas, &mut batch, (0.0, 0.0), false);
++        assert!(batch.vertices.is_empty());
++        assert!(title.buttons(w, h).is_empty());
++        // Singleplayer, Quit, the language icon and the bottom notice's place.
++        for (x, y) in [
++            (cx, y + 10.0),
++            (cx + 50.0, y + 106.0),
++            (cx, y + 82.0),
++            (w - 5.0, h - 5.0),
++        ] {
++            assert_eq!(title.click(x, y, (w, h)), (Action::None, false));
++            assert!(matches!(title.mode, Mode::Main));
++        }
++        title.tab_dir(false, (w, h));
++        assert_eq!(title.focused_button, None);
++        assert_eq!(title.confirm_key_size((w, h)), (Action::None, false));
++        title.set_widgets_hidden(false);
++        assert_eq!(title.buttons(w, h).len(), 8);
++        assert_eq!(
++            title.click(cx + 50.0, y + 106.0, (w, h)),
++            (Action::Quit, true)
++        );
++    }
++
++    /// `press_main` is the button's own press: the same screen or action as a
++    /// click on it, hidden widgets or not.
++    #[test]
++    fn pressing_a_main_button_for_the_player_does_what_its_click_does() {
++        for hidden in [false, true] {
++            for (button, action) in [
++                (MainButton::Options, Action::Options),
++                (MainButton::Language, Action::Language),
++                (MainButton::Accessibility, Action::Accessibility),
++                (MainButton::Credits, Action::Credits),
++                (MainButton::Quit, Action::Quit),
++            ] {
++                let mut title = fresh();
++                title.set_widgets_hidden(hidden);
++                assert_eq!(title.press_main(button), Some(action));
++                assert!(matches!(title.mode, Mode::Main));
++            }
++            let mut title = fresh();
++            title.set_widgets_hidden(hidden);
++            assert_eq!(
++                title.press_main(MainButton::Multiplayer),
++                Some(Action::None)
++            );
++            assert!(matches!(
++                title.mode,
++                Mode::MultiplayerWarning { check: false }
++            ));
++            // Not on the main screen any more: nothing to press.
++            assert_eq!(title.press_main(MainButton::Quit), None);
++            let mut title = fresh();
++            title.skip_multiplayer_warning = true;
++            title.press_main(MainButton::Multiplayer);
++            assert!(matches!(title.mode, Mode::Multiplayer(_)));
++            let mut title = fresh();
++            title.press_main(MainButton::Friends);
++            assert!(matches!(
++                title.mode,
++                Mode::Multiplayer(crate::multiplayer::Screen::Friend { .. })
++            ));
++            let mut title = fresh();
++            title.press_main(MainButton::Realms);
++            assert!(matches!(title.mode, Mode::Realms(_)));
++            // No saves: Singleplayer opens Create New World, as its click does.
++            let mut title = fresh();
++            title.press_main(MainButton::Singleplayer);
++            assert!(matches!(title.mode, Mode::Create { .. }));
++        }
++        // An account that may not play online: Multiplayer and Realms are off.
++        let mut title = fresh();
++        title.allows_multiplayer = false;
++        assert_eq!(title.press_main(MainButton::Multiplayer), None);
++        assert_eq!(title.press_main(MainButton::Realms), None);
++        assert!(matches!(title.mode, Mode::Main));
++        assert_eq!(title.press_main(MainButton::Options), Some(Action::Options));
++    }
++
++    #[test]
++    fn main_button_names() {
++        for (name, button) in [
++            ("singleplayer", MainButton::Singleplayer),
++            ("multiplayer", MainButton::Multiplayer),
++            ("realms", MainButton::Realms),
++            ("friends", MainButton::Friends),
++            ("options", MainButton::Options),
++            ("language", MainButton::Language),
++            ("accessibility", MainButton::Accessibility),
++            ("credits", MainButton::Credits),
++            ("quit", MainButton::Quit),
++        ] {
++            assert_eq!(MainButton::parse(name), Some(button));
++        }
++        assert_eq!(MainButton::parse("Quit"), None);
++        assert_eq!(MainButton::parse(""), None);
++    }
+ }
+diff --git a/tools/native-hook-fragments/title_screen.json b/tools/native-hook-fragments/title_screen.json
+new file mode 100644
+index 000000000..bc6f9ed85
+--- /dev/null
++++ b/tools/native-hook-fragments/title_screen.json
+@@ -0,0 +1,16 @@
++{
++  "hooks": [],
++  "helpers": [
++    {
++      "name": "title_widgets_hidden",
++      "target": "horizon_client::game::native_title_screen::Game<'_>::native_title_widgets_hidden"
++    },
++    {
++      "name": "title_open",
++      "target": "horizon_client::game::native_title_screen::Game<'_>::native_title_open"
++    }
++  ],
++  "rust_summary": "a client mod draws its own main menu over the title's panorama: it hides the main title's widgets (`native_title_widgets_hidden`) and presses the title's buttons for the player (`native_title_open`).",
++  "doc_summary": "`native_title_widgets_hidden(hidden)` hides (or shows again) the main title's own logo, splash, buttons, version line and bottom notice, which then take no click, Tab or Enter; the panorama and every other title screen stay. `native_title_open(button)` presses a main title button for the player as a click does (`singleplayer`, `multiplayer`, `realms`, `friends`, `options`, `language`, `accessibility`, `credits`, `quit`): true when it will run, false off the main title or for a button that is off. Bundles need \"hooks\": @API:title_screen@.",
++  "comments": ["crates/horizon-client/src/game/native_title_screen.rs"]
++}
+-- 
+2.47.0
+

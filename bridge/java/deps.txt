@@ -1,0 +1,37 @@
+# Rustic Bridge (Java layer): third-party jars fetched at build time, never committed.
+# Format: <scope> <group>:<artifact>:<version> <sha256>
+#   runtime: on the bridge's compile and run classpath (the Paper API and what it depends on,
+#            i.e. what a Paper server provides to plugins)
+#   test:    only used to build the test plugins (shaded into the probe plugin)
+# Resolved once with Maven from io.papermc.paper:paper-api (Paper's own library-loader
+# dependencies, maven-resolver and httpclient, are left out: the bridge does not implement
+# plugin.yml `libraries:` downloads). Repository: https://repo.papermc.io/repository/maven-public/
+runtime io.papermc.paper:paper-api:26.3.build.246-stable 2867037c4296866673082a0b73cb768f77f238251139f5d87128b2ec8392ee85
+runtime net.kyori:adventure-api:5.2.0 7e52fe7190be3e87b3b3f71712cfa12315fcd27109f302a7b440c12f01fae827
+runtime net.kyori:adventure-key:5.2.0 0184d173200e2eef8fbc791f622d1d58fd459f8930c616b5a4fe79e83eda6c55
+runtime net.kyori:adventure-text-logger-slf4j:5.2.0 ae79b7f3846c5d973b37c7eec03190bd44e182918d1346e7705c5991a1b5dfb3
+runtime net.kyori:adventure-text-minimessage:5.2.0 e1871aba1511dbe49cff211c10f85682886014161e5d629318aa69583c31a2c0
+runtime net.kyori:adventure-text-serializer-commons:5.2.0 64b3e45d93aa57f4da9b257d16c8f2172612d9e3312b061f4892fd426922d2c3
+runtime net.kyori:adventure-text-serializer-gson:5.2.0 5b2ad1c8a65e7fa0811279b51a45d5fc574b6a6354097b545e4fdb5b68aaed73
+runtime net.kyori:adventure-text-serializer-json:5.2.0 adb5410006175b9aa6343bfadd0bd11c4a6955ee2abc1a58abe2a3fa6cbd9ab5
+runtime net.kyori:adventure-text-serializer-legacy:5.2.0 1231a0de417de66c59e2f2a3892ecca6b8d48621df6f1d9a2f81b01f57e328b7
+runtime net.kyori:adventure-text-serializer-plain:5.2.0 f6424cc038a631b79cc4b74b6b353d5d007c99b38f9be482e0c2448a00eecd21
+runtime net.kyori:option:1.1.0 97b69b4b17dfe02217c9131ad342564cbc9aebd04c75eb689639b5f78fd4b11c
+runtime org.jetbrains:annotations:26.1.0 ebc7aec252ed0c7d2d04c039d7f00e69f7b86b1f493c741d67b3ef31b986b054
+runtime com.google.auto.service:auto-service-annotations:1.1.1 16a76dd00a2650568447f5d6e3a9e2c809d9a42367d56b45215cfb89731f4d24
+runtime com.mojang:brigadier:1.3.11 9d09cf4819de83dfcd38bcb212d5f2227131791cef3abbfca3321d6fb2b9a64d
+runtime net.md-5:bungeecord-chat:1.21-R0.2-deprecated+build.21 ce930b3ee048520a0ab538eb8d1627b301367fc1b300837235387aded6d89ba1
+runtime org.checkerframework:checker-qual:4.2.3 f868f731f6e37db3e1c2140d06016477989959a2d13fc5bed9c46760cffd5ba0
+runtime com.google.errorprone:error_prone_annotations:2.47.0 5364bc6f22e72e98195e406a58d3ba1c09ffa11dea0729592cb870dc2de4056d
+runtime com.google.guava:failureaccess:1.0.3 cbfc3906b19b8f55dd7cfd6dfe0aa4532e834250d7f080bd8d211a3e246b59cb
+runtime com.google.guava:guava:33.6.0-jre dc573e1fca4fd5454f4a5fd3d7da2df03002876a4175bafc14a95980dd7713b3
+runtime com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava b372a037d4230aa57fbeffdef30fd6123f9c0c2db85d0aced00c91b974f33f99
+runtime com.google.j2objc:j2objc-annotations:3.1 84d3a150518485f8140ea99b8a985656749629f6433c92b80c75b36aba3b099b
+runtime it.unimi.dsi:fastutil:8.5.18 9094ae67d01d0ad246f886f11ad557fc2e79c72cbf3feed83e1512a8ae90a74a
+runtime com.google.code.gson:gson:2.14.0 2cbd119bf1961c28788310963dc80ba65f58cdeec1dd139c8bdb1240faa2c36f
+runtime org.joml:joml:1.10.9 feca4db853371704338621c120acc5cc32300d8af635fa42414b6213301e216b
+runtime org.jspecify:jspecify:1.0.0 1fad6e6be7557781e4d33729d49ae1cdc8fdda6fe477bb0cc68ce351eafdfbab
+runtime org.apache.logging.log4j:log4j-api:2.26.0 820de7bbaf430eaf2e3e5ccb92f23e2085797c5ac4d4f7fc6c8b660fbefa1dbc
+runtime org.slf4j:slf4j-api:2.0.17 7b751d952061954d5abfed7181c1f645d336091b679891591d63329c622eb832
+runtime org.yaml:snakeyaml:2.2 1467931448a0817696ae2805b7b8b20bfb082652bf9c4efaed528930dc49389b
+test org.xerial:sqlite-jdbc:3.50.3.0 a3f53a2aa15ae9425a9e793bbe9c8e5288febeb4b65ef5c1a4e80d4c2045cf08

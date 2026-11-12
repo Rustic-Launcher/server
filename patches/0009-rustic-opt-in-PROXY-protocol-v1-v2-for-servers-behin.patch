@@ -1,0 +1,495 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: BouBou <69978359+BouBouw@users.noreply.github.com>
+Date: Wed, 11 Nov 2026 03:27:09 +0100
+Subject: [PATCH] rustic: opt-in PROXY protocol v1/v2 for servers behind a TCP
+ relay
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/crates/horizon-client/src/game/dedicated.rs b/crates/horizon-client/src/game/dedicated.rs
+index 170156009..48280adae 100644
+--- a/crates/horizon-client/src/game/dedicated.rs
++++ b/crates/horizon-client/src/game/dedicated.rs
+@@ -1181,6 +1181,13 @@ impl Game<'_> {
+                 .get(horizon_client::lan::ACCEPT_OLDER_CLIENTS)
+                 .is_some_and(|v| v.trim().eq_ignore_ascii_case("true")),
+             older_clients_play: false,
++            proxy_protocol: horizon_client::lan::proxy_protocol::ProxyProtocol::from_properties(
++                props.raw.get(horizon_client::lan::proxy_protocol::PROPERTY),
++                props
++                    .raw
++                    .get(horizon_client::lan::proxy_protocol::TRUSTED_PROPERTY),
++            )?
++            .map(Arc::new),
+             lod_distance: horizon_client::lod_net::distance_property(
+                 props.raw.get(horizon_client::lod_net::PROPERTY),
+             ),
+diff --git a/crates/horizon-client/src/lan/conn.rs b/crates/horizon-client/src/lan/conn.rs
+index 69baf6454..046ae18fb 100644
+--- a/crates/horizon-client/src/lan/conn.rs
++++ b/crates/horizon-client/src/lan/conn.rs
+@@ -609,6 +609,12 @@ pub(super) fn serve(
+     counted: super::Counted,
+ ) -> Result<(), String> {
+     let e = |e: horizon_protocol::Error| e.to_string();
++    // Behind a proxy that speaks the PROXY protocol, the player's own address, read before
++    // anything else (`proxy-protocol`); Velocity's forwarding still replaces it at login.
++    let address = match &shared.config.proxy_protocol {
++        Some(proxies) => proxies.accept(&stream, address)?,
++        None => address,
++    };
+     // LegacyQueryHandler, ahead of the frame decoder while status is on.
+     let mut first = [0u8; 1];
+     if shared.enable_status() && stream.peek(&mut first).is_ok_and(|n| n == 1) && first[0] == 0xFE {
+@@ -754,7 +760,42 @@ fn older_client(
+     .then_some(version)
+ }
+ 
+-fn serve_status(c: &mut Connection, shared: &Shared, protocol: i32) -> Result<(), String> {
++/// A server list ping is answered (Bukkit's `ServerListPingEvent`), on the connection's own thread, once per
++/// status request: `address` is the pinging client's (behind a proxy, the proxy's), `protocol` the one its
++/// handshake stated, `motd` the server's. A mod may set `description` to the text shown instead of the motd,
++/// change `max_players` and `online` (the numbers the list shows) and change, add or remove the players named
++/// in `sample` (shown on hover; filled with up to 12 players unless the server hides them, left out when empty).
++/// Mods are asked in order and each sees the changes of the ones before. What no mod changes is answered as
++/// before. Neither the legacy ping (`0xFE`) nor a refused handshake is heard. There is no `Game` on this
++/// thread: no helper works, and the hook must not block for long (the client waits for it). API
++/// @API:status_response@.
++#[inline(never)]
++pub fn native_status_response(
++    address: std::net::SocketAddr,
++    protocol: i32,
++    motd: &str,
++    description: &mut Option<Text>,
++    max_players: &mut i32,
++    online: &mut i32,
++    sample: &mut Vec<(u128, String)>,
++) {
++    crate::native_client_hooks::status_response(
++        address,
++        protocol,
++        motd,
++        description,
++        max_players,
++        online,
++        sample,
++    );
++}
++
++fn serve_status(
++    c: &mut Connection,
++    shared: &Shared,
++    protocol: i32,
++    address: std::net::SocketAddr,
++) -> Result<(), String> {
+     let e = |e: horizon_protocol::Error| e.to_string();
+     let mut requested = false;
+     loop {
+diff --git a/crates/horizon-client/src/lan/mod.rs b/crates/horizon-client/src/lan/mod.rs
+index df36aa45d..99d9e48ed 100644
+--- a/crates/horizon-client/src/lan/mod.rs
++++ b/crates/horizon-client/src/lan/mod.rs
+@@ -31,6 +31,7 @@ mod io_pool;
+ pub mod menu;
+ pub mod playerdata;
+ pub mod prediction;
++pub mod proxy_protocol;
+ pub mod recipes;
+ mod registry_names;
+ pub mod scoreboard;
+@@ -287,6 +288,9 @@ pub struct NetConfig {
+     /// [`OLDER_CLIENTS_UNFINISHED`] before any registry data, tag or play packet would reach it in 26.3's
+     /// ids and layouts.
+     pub older_clients_play: bool,
++    /// `proxy-protocol` and `proxy-protocol-trusted` (Horizon's own server.properties keys, off): the
++    /// proxies whose PROXY protocol header gives a connection's address ([`proxy_protocol`]).
++    pub proxy_protocol: Option<Arc<proxy_protocol::ProxyProtocol>>,
+     /// `horizon-lod-distance` (Horizon's own server.properties key, 64): how
+     /// far, in chunks, the server samples far terrain for Horizon clients
+     /// (`lod_net`); 0 serves none.
+@@ -337,6 +341,7 @@ impl NetConfig {
+             horizon_clients_only: false,
+             accept_older_clients: false,
+             older_clients_play: false,
++            proxy_protocol: None,
+             lod_distance: crate::lod_net::DEFAULT_DISTANCE,
+             levels: crate::chunk::LevelShapes::VANILLA,
+             owner_profile: None,
+diff --git a/crates/horizon-client/src/lan/proxy_protocol.rs b/crates/horizon-client/src/lan/proxy_protocol.rs
+new file mode 100644
+index 000000000..241060a31
+--- /dev/null
++++ b/crates/horizon-client/src/lan/proxy_protocol.rs
+@@ -0,0 +1,372 @@
++//! The PROXY protocol (HAProxy's, versions 1 and 2) in front of the handshake, for a server behind a
++//! TCP proxy or relay that is not a game proxy (HAProxy, nginx `stream`, a tunnel): the proxy writes
++//! the player's own address before their first packet, and the server takes it as the connection's,
++//! so bans, the whitelist by address, the log, `NativeServerPlayer.address` and the server-list ping
++//! see the player, not the proxy. Off unless `server.properties` turns it on:
++//!
++//! ```properties
++//! proxy-protocol=true
++//! proxy-protocol-trusted=127.0.0.1,10.0.0.5
++//! ```
++//!
++//! On, a connection from a trusted proxy must start with a header (one that doesn't is closed), and a
++//! connection from anywhere else must not (one that does is closed: anybody could claim any address);
++//! other direct connections are served as before. A version 2 `LOCAL` header (a proxy's health check)
++//! and an `UNKNOWN` or non-TCP one keep the proxy's address. Velocity's modern forwarding, read later
++//! during login, still wins over the header for the player's address and profile
++//! (docs/velocity-forwarding.md).
++use std::io::Read;
++use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
++use std::time::{Duration, Instant};
++
++/// `server.properties`' switch (off by default).
++pub const PROPERTY: &str = "proxy-protocol";
++/// `server.properties`' list of the proxies' addresses whose headers are believed, comma separated.
++pub const TRUSTED_PROPERTY: &str = "proxy-protocol-trusted";
++
++/// The version 2 header's first twelve bytes.
++const V2_SIGNATURE: [u8; 12] = *b"\r\n\r\n\0\r\nQUIT\n";
++/// The longest version 1 header, its CRLF included.
++const V1_MAX: usize = 107;
++/// The most a version 2 header may add after its first sixteen bytes that is read (its TLVs too).
++const V2_MAX_EXTRA: usize = 4096;
++/// How long a connection may take to send its header, or the start of its first packet.
++const HEADER_WAIT: Duration = Duration::from_secs(5);
++
++/// The proxies a server takes a PROXY header from.
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub struct ProxyProtocol {
++    pub trusted: Vec<IpAddr>,
++}
++
++impl ProxyProtocol {
++    /// From `server.properties`' values: None while `proxy-protocol` is not `true`. An address of
++    /// the list that doesn't parse is an error, so a typo doesn't lock every player out.
++    pub fn from_properties(
++        enabled: Option<&str>,
++        trusted: Option<&str>,
++    ) -> Result<Option<Self>, String> {
++        if !enabled.is_some_and(|v| v.trim().eq_ignore_ascii_case("true")) {
++            return Ok(None);
++        }
++        let trusted = trusted
++            .unwrap_or_default()
++            .split(',')
++            .map(str::trim)
++            .filter(|s| !s.is_empty())
++            .map(|s| {
++                s.parse::<IpAddr>()
++                    .map(|ip| ip.to_canonical())
++                    .map_err(|_| format!("{TRUSTED_PROPERTY}: `{s}` is not an IP address"))
++            })
++            .collect::<Result<Vec<_>, _>>()?;
++        if trusted.is_empty() {
++            return Err(format!(
++                "{PROPERTY} is on but {TRUSTED_PROPERTY} names no proxy: every header would be refused"
++            ));
++        }
++        Ok(Some(Self { trusted }))
++    }
++
++    fn trusts(&self, ip: IpAddr) -> bool {
++        self.trusted.contains(&ip.to_canonical())
++    }
++
++    /// The address to serve the connection from `peer` as: the one its header gives when `peer` is
++    /// a trusted proxy, `peer` itself for a direct connection. Err (close the connection) for a
++    /// trusted proxy's connection without a valid header and for a header from anyone else. Reads
++    /// exactly the header, so the handshake follows untouched.
++    pub fn accept(&self, stream: &TcpStream, peer: SocketAddr) -> Result<SocketAddr, String> {
++        let previous = stream.read_timeout().ok().flatten();
++        let _ = stream.set_read_timeout(Some(HEADER_WAIT));
++        let result = (|| {
++            let version = sniff(stream)?;
++            match (self.trusts(peer.ip()), version) {
++                (true, Some(version)) => read_header(&mut &*stream, version, peer),
++                (true, None) => Err(format!("{peer}: a trusted proxy sent no PROXY header")),
++                (false, Some(_)) => {
++                    Err(format!("{peer}: a PROXY header from an untrusted address"))
++                }
++                (false, None) => Ok(peer),
++            }
++        })();
++        let _ = stream.set_read_timeout(previous);
++        result
++    }
++}
++
++/// Which header the connection starts with, without reading it: Some(1) or Some(2), None for none
++/// (a game packet, a legacy ping). Waits for enough bytes to tell.
++fn sniff(stream: &TcpStream) -> Result<Option<u8>, String> {
++    let until = Instant::now() + HEADER_WAIT;
++    let mut buf = [0u8; 12];
++    loop {
++        let n = stream.peek(&mut buf).map_err(|e| e.to_string())?;
++        if n == 0 {
++            return Err("closed before its first packet".into());
++        }
++        if let Some(found) = header_version(&buf[..n]) {
++            return Ok(found);
++        }
++        if Instant::now() > until {
++            return Err("too slow to start".into());
++        }
++        std::thread::sleep(Duration::from_millis(2));
++    }
++}
++
++/// Some(answer) once `start` (the first bytes, maybe not all of them yet) tells: Some(Some(1)) for
++/// `PROXY `, Some(Some(2)) for the version 2 signature, Some(None) for anything else; None while
++/// the bytes so far could still be either.
++fn header_version(start: &[u8]) -> Option<Option<u8>> {
++    let v1 = b"PROXY ";
++    let v2 = &V2_SIGNATURE[..];
++    let could = |sig: &[u8]| start.iter().zip(sig).all(|(a, b)| a == b);
++    match (could(v1), could(v2)) {
++        (true, _) if start.len() >= v1.len() => Some(Some(1)),
++        (_, true) if start.len() >= v2.len() => Some(Some(2)),
++        (false, false) => Some(None),
++        _ => None,
++    }
++}
++
++/// Reads a header of `version` from `r` and gives the client's address (`peer` where the header
++/// carries none).
++fn read_header(r: &mut impl Read, version: u8, peer: SocketAddr) -> Result<SocketAddr, String> {
++    if version == 1 {
++        read_v1(r, peer)
++    } else {
++        read_v2(r, peer)
++    }
++}
++
++/// `PROXY TCP4 <src> <dst> <sport> <dport>\r\n` (or `TCP6`, or `UNKNOWN ...`).
++fn read_v1(r: &mut impl Read, peer: SocketAddr) -> Result<SocketAddr, String> {
++    let mut line = Vec::with_capacity(V1_MAX);
++    let mut byte = [0u8; 1];
++    while !line.ends_with(b"\r\n") {
++        if line.len() == V1_MAX {
++            return Err("a PROXY v1 header longer than 107 bytes".into());
++        }
++        r.read_exact(&mut byte).map_err(|e| e.to_string())?;
++        line.push(byte[0]);
++    }
++    let line = std::str::from_utf8(&line[..line.len() - 2])
++        .map_err(|_| "a PROXY v1 header that is not ASCII")?;
++    let parts: Vec<&str> = line.split(' ').collect();
++    match parts.as_slice() {
++        ["PROXY", "UNKNOWN", ..] => Ok(peer),
++        ["PROXY", family @ ("TCP4" | "TCP6"), source, _, port, _] => {
++            let ip: IpAddr = source
++                .parse()
++                .map_err(|_| "a bad PROXY v1 source address")?;
++            if ip.is_ipv4() != (*family == "TCP4") {
++                return Err("a PROXY v1 address of the other family".into());
++            }
++            let port: u16 = port.parse().map_err(|_| "a bad PROXY v1 source port")?;
++            Ok(SocketAddr::new(ip, port))
++        }
++        _ => Err("a malformed PROXY v1 header".into()),
++    }
++}
++
++/// The binary header: the signature, version and command, family and protocol, the length of what
++/// follows, then the addresses (and TLVs, skipped).
++fn read_v2(r: &mut impl Read, peer: SocketAddr) -> Result<SocketAddr, String> {
++    let mut head = [0u8; 16];
++    r.read_exact(&mut head).map_err(|e| e.to_string())?;
++    if head[..12] != V2_SIGNATURE || head[12] >> 4 != 2 {
++        return Err("a PROXY v2 header of an unknown version".into());
++    }
++    let command = head[12] & 0x0F;
++    let family = head[13];
++    let len = usize::from(u16::from_be_bytes([head[14], head[15]]));
++    if len > V2_MAX_EXTRA {
++        return Err("a PROXY v2 header too long".into());
++    }
++    let mut rest = vec![0u8; len];
++    r.read_exact(&mut rest).map_err(|e| e.to_string())?;
++    match (command, family) {
++        // LOCAL: the proxy's own connection (a health check).
++        (0, _) => Ok(peer),
++        // PROXY over TCP (or UDP) on IPv4: source, destination, source port, destination port.
++        (1, 0x11 | 0x12) if len >= 12 => {
++            let ip = Ipv4Addr::new(rest[0], rest[1], rest[2], rest[3]);
++            Ok(SocketAddr::new(
++                ip.into(),
++                u16::from_be_bytes([rest[8], rest[9]]),
++            ))
++        }
++        (1, 0x21 | 0x22) if len >= 36 => {
++            let mut octets = [0u8; 16];
++            octets.copy_from_slice(&rest[..16]);
++            let ip = Ipv6Addr::from(octets);
++            Ok(SocketAddr::new(
++                ip.into(),
++                u16::from_be_bytes([rest[32], rest[33]]),
++            ))
++        }
++        // UNSPEC and UNIX sockets carry no address a player has.
++        (1, 0x00 | 0x31 | 0x32) => Ok(peer),
++        (1, _) => Err("a PROXY v2 header too short for its addresses".into()),
++        _ => Err("a PROXY v2 header with an unknown command".into()),
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::io::Write;
++
++    fn peer() -> SocketAddr {
++        "127.0.0.1:40000".parse().unwrap()
++    }
++
++    fn v2(command: u8, family: u8, body: &[u8]) -> Vec<u8> {
++        let mut h = V2_SIGNATURE.to_vec();
++        h.push(0x20 | command);
++        h.push(family);
++        h.extend((body.len() as u16).to_be_bytes());
++        h.extend(body);
++        h
++    }
++
++    /// The header and the first bytes after it: what `read_header` leaves unread.
++    fn read(bytes: &[u8]) -> (Result<SocketAddr, String>, Vec<u8>) {
++        let mut r = bytes;
++        let version = header_version(bytes).flatten().expect("a header");
++        let address = read_header(&mut r, version, peer());
++        (address, r.to_vec())
++    }
++
++    #[test]
++    fn a_v1_header_gives_the_clients_address_and_leaves_the_handshake() {
++        let mut bytes = b"PROXY TCP4 203.0.113.7 192.0.2.1 51234 25565\r\n".to_vec();
++        bytes.extend([0x10, 0x00]);
++        let (address, rest) = read(&bytes);
++        assert_eq!(address.unwrap(), "203.0.113.7:51234".parse().unwrap());
++        assert_eq!(rest, [0x10, 0x00]);
++        let (address, _) = read(b"PROXY TCP6 2001:db8::7 2001:db8::1 4000 25565\r\n");
++        assert_eq!(address.unwrap(), "[2001:db8::7]:4000".parse().unwrap());
++        assert_eq!(read(b"PROXY UNKNOWN\r\n").0.unwrap(), peer());
++        for bad in [
++            &b"PROXY TCP4 2001:db8::7 192.0.2.1 1 2\r\n"[..],
++            b"PROXY TCP4 203.0.113.7 192.0.2.1 99999 25565\r\n",
++            b"PROXY TCP4 nonsense\r\n",
++        ] {
++            assert!(read(bad).0.is_err(), "{bad:?}");
++        }
++        let long = [b"PROXY ".as_slice(), &[b'1'; 120]].concat();
++        assert!(read(&long).0.is_err());
++    }
++
++    #[test]
++    fn a_v2_header_gives_the_clients_address_and_skips_its_tlvs() {
++        let mut body = vec![198, 51, 100, 9, 192, 0, 2, 1];
++        body.extend(60000u16.to_be_bytes());
++        body.extend(25565u16.to_be_bytes());
++        body.extend([0x04, 0x00, 0x01, 0xAA]); // a TLV (NOOP) to skip
++        let mut bytes = v2(1, 0x11, &body);
++        bytes.push(0x10);
++        let (address, rest) = read(&bytes);
++        assert_eq!(address.unwrap(), "198.51.100.9:60000".parse().unwrap());
++        assert_eq!(rest, [0x10]);
++        let mut six = Vec::new();
++        six.extend(&"2001:db8::9".parse::<Ipv6Addr>().unwrap().octets());
++        six.extend(&"2001:db8::1".parse::<Ipv6Addr>().unwrap().octets());
++        six.extend(7000u16.to_be_bytes());
++        six.extend(25565u16.to_be_bytes());
++        assert_eq!(
++            read(&v2(1, 0x21, &six)).0.unwrap(),
++            "[2001:db8::9]:7000".parse().unwrap()
++        );
++        // LOCAL (a health check) and UNSPEC keep the proxy's address.
++        assert_eq!(read(&v2(0, 0x00, &[])).0.unwrap(), peer());
++        assert_eq!(read(&v2(1, 0x00, &[])).0.unwrap(), peer());
++        assert!(read(&v2(1, 0x11, &[1, 2, 3])).0.is_err(), "too short");
++        assert!(read(&v2(7, 0x11, &body)).0.is_err(), "unknown command");
++    }
++
++    #[test]
++    fn only_a_header_start_is_taken_for_one() {
++        assert_eq!(header_version(b"PROXY TCP4"), Some(Some(1)));
++        assert_eq!(header_version(&V2_SIGNATURE), Some(Some(2)));
++        assert_eq!(header_version(b"PRO"), None, "not enough bytes yet");
++        assert_eq!(header_version(b"\r\n\r\n"), None);
++        // A handshake (length, id 0) and the legacy ping.
++        assert_eq!(header_version(&[0x10, 0x00, 0xFD, 0x05]), Some(None));
++        assert_eq!(header_version(&[0xFE, 0x01]), Some(None));
++    }
++
++    #[test]
++    fn the_properties_turn_it_on_with_a_list_of_proxies() {
++        assert_eq!(
++            ProxyProtocol::from_properties(None, Some("127.0.0.1")),
++            Ok(None)
++        );
++        assert_eq!(
++            ProxyProtocol::from_properties(Some("false"), None),
++            Ok(None)
++        );
++        let on = ProxyProtocol::from_properties(Some("true"), Some("127.0.0.1, ::ffff:10.0.0.5"))
++            .unwrap()
++            .unwrap();
++        assert!(
++            on.trusts("10.0.0.5".parse().unwrap()),
++            "an IPv4-mapped address matches"
++        );
++        assert!(on.trusts("::ffff:127.0.0.1".parse().unwrap()));
++        assert!(!on.trusts("10.0.0.6".parse().unwrap()));
++        assert!(ProxyProtocol::from_properties(Some("true"), Some("10.0.0.300")).is_err());
++        assert!(ProxyProtocol::from_properties(Some("true"), Some("")).is_err());
++    }
++
++    /// Over real sockets: a trusted proxy's header is taken, an untrusted one's is refused, a
++    /// direct connection is served, and a trusted proxy without a header is refused.
++    #[test]
++    fn a_connection_is_taken_from_a_trusted_proxy_only() {
++        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
++        let at = listener.local_addr().unwrap();
++        let connect = |bytes: &'static [u8]| {
++            std::thread::spawn(move || {
++                let mut s = TcpStream::connect(at).unwrap();
++                s.write_all(bytes).unwrap();
++                std::thread::sleep(Duration::from_millis(200));
++            })
++        };
++        let trusting = ProxyProtocol {
++            trusted: vec!["127.0.0.1".parse().unwrap()],
++        };
++        let distrusting = ProxyProtocol {
++            trusted: vec!["10.9.9.9".parse().unwrap()],
++        };
++        let header: &'static [u8] = b"PROXY TCP4 203.0.113.7 127.0.0.1 51234 25565\r\n\x10\x00";
++        for (config, bytes, expected) in [
++            (&trusting, header, Some("203.0.113.7:51234")),
++            (&distrusting, header, None),
++            (&trusting, &b"\x10\x00\xfd\x05"[..], None),
++        ] {
++            let client = connect(bytes);
++            let (stream, peer) = listener.accept().unwrap();
++            let got = config.accept(&stream, peer);
++            match expected {
++                Some(address) => {
++                    assert_eq!(got.unwrap(), address.parse().unwrap());
++                    let mut next = [0u8; 2];
++                    (&stream).read_exact(&mut next).unwrap();
++                    assert_eq!(next, [0x10, 0x00], "the handshake follows untouched");
++                }
++                None => assert!(got.is_err()),
++            }
++            client.join().unwrap();
++        }
++        let client = connect(b"\x10\x00\xfd\x05");
++        let (stream, peer) = listener.accept().unwrap();
++        assert_eq!(
++            distrusting.accept(&stream, peer).unwrap(),
++            peer,
++            "a direct connection"
++        );
++        client.join().unwrap();
++    }
++}

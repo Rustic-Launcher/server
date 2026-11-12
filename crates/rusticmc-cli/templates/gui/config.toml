@@ -1,0 +1,2 @@
+# {{name}} configuration. Copied to plugins/{{id}}/config.toml on first start; edit that copy.
+config_version = 1

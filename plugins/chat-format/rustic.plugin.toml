@@ -1,0 +1,18 @@
+# Rustic plugin manifest (docs/PLUGIN_FORMAT.md).
+[plugin]
+id = "chat-format"
+name = "Chat Format"
+version = "0.1.0"
+api = "0.1"
+authors = ["Rustic contributors"]
+license = "MIT OR Apache-2.0"
+entry = "chat_format.wasm"
+description = "Chat formats with groups and prefixes, colours, mentions, anti-spam, filters, mutes, join and quit lines."
+
+[dependencies]
+# A permissions plugin providing the chat-meta service supplies prefixes when installed.
+optional = { perms = "*" }
+
+[capabilities]
+# config.toml lives in the data folder.
+filesystem = "data-folder"

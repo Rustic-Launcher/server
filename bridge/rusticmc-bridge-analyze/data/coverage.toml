@@ -1,0 +1,2044 @@
+# Rustic coverage of the Bukkit / Spigot / Paper / Adventure plugin API.
+#
+# Built by hand from the WIT contract (crates/rusticmc-api-wit/wit/*.wit, rustic:api@0.1.0 and
+# rustic:services@0.1.0). Only names of public API types and members appear here (facts needed
+# for interoperability analysis); no code, signature or documentation text is copied from any
+# Bukkit-family project (AGENTS.md).
+#
+# Format (see src/coverage.rs):
+#   [packages]               "a.b.c" = mapping       every class under that package prefix
+#   [classes."a.b.C"]        type = mapping           the type itself (absent: see members)
+#                            inherits = ["a.b.D"]     supertypes/delegates whose mappings apply
+#   [classes."a.b.C".methods] name = mapping          by name, or "name(descriptor)", or "*"
+#   [classes."a.b.C".fields]  name = mapping
+#
+# Mapping values: "iface.function" (WIT), "events.<record>" (an event handler), "java-side: ..."
+# (pure-Java API the bridge implements without any host call), "partial: ..." (covered with a
+# semantic gap: counted as covered, reported separately) and "uncovered: why" (explicit gap).
+# Anything absent is uncovered. A unit test checks that every `iface.function` named here exists
+# in the WIT, so this table cannot claim more than the contract offers.
+
+[meta]
+api = "rustic:api@0.1.0 + rustic:services@0.1.0"
+note = "Hand-written from the WIT; be conservative: absent means uncovered."
+
+# ------------------------------------------------------------------ whole packages (pure Java)
+
+[packages]
+"org.bukkit.configuration" = "java-side: YAML configuration, files in the plugin data folder (wasi:filesystem data-folder for native plugins)"
+"org.bukkit.util.noise" = "java-side: noise generators (pure maths)"
+"org.bukkit.metadata" = "java-side: metadata values held by the bridge"
+"org.bukkit.util.io" = "partial: java-side object streams; ItemStack values go through types.item-stack SNBT"
+"net.kyori.adventure.text" = "java-side: Adventure components and MiniMessage, serialized to types.text JSON"
+"net.kyori.adventure.key" = "java-side: namespaced keys"
+"net.kyori.adventure.util" = "java-side"
+"net.kyori.adventure.title" = "java-side: title values, shown with players.send-title"
+"net.kyori.adventure.sound" = "java-side: sound values, played with players.play-sound"
+"net.kyori.adventure.identity" = "java-side"
+"net.kyori.adventure.pointer" = "java-side"
+"net.kyori.adventure.nbt" = "java-side: NBT values"
+"net.kyori.adventure.translation" = "partial: java-side; the client renders translatable components, the server-side registry is not exposed"
+"net.kyori.examination" = "java-side"
+"net.kyori.option" = "java-side"
+"net.md_5.bungee.api.chat" = "java-side: BungeeCord chat components, serialized to types.text JSON"
+"net.md_5.bungee.chat" = "java-side: chat component serializer"
+"com.mojang.brigadier" = "partial: java-side Brigadier tree, registered as commands.register usages (argument kinds limited to commands.arg-kind)"
+
+# ------------------------------------------------------------------ plugin lifecycle
+
+[classes."org.bukkit.plugin.java.JavaPlugin"]
+type = "plugin.on-enable"
+inherits = ["org.bukkit.plugin.Plugin"]
+[classes."org.bukkit.plugin.java.JavaPlugin".methods]
+getPlugin = "java-side: bridged plugins are Java objects in the same JVM"
+getProvidingPlugin = "java-side: bridged plugins are Java objects in the same JVM"
+setEnabled = "partial: an error from plugin.on-enable disables the plugin itself"
+
+[classes."org.bukkit.plugin.PluginBase"]
+inherits = ["org.bukkit.plugin.Plugin"]
+
+[classes."org.bukkit.plugin.Plugin"]
+type = "plugin.on-enable"
+[classes."org.bukkit.plugin.Plugin".methods]
+onEnable = "plugin.on-enable"
+onDisable = "plugin.on-disable"
+onLoad = "plugin.on-load"
+getLogger = "logging.log"
+getSLF4JLogger = "logging.log"
+getComponentLogger = "logging.log"
+getDataFolder = "java-side: plugin data folder (wasi:filesystem data-folder for native plugins)"
+getDataPath = "java-side: plugin data folder"
+getConfig = "java-side: the config file in the data folder"
+saveConfig = "java-side: the config file in the data folder"
+reloadConfig = "java-side: the config file in the data folder"
+saveDefaultConfig = "java-side: resource copied to the data folder"
+saveResource = "java-side: resource copied to the data folder"
+getResource = "java-side: resource from the plugin jar"
+getTextResource = "java-side: resource from the plugin jar"
+getServer = "java-side: server facade"
+getName = "server.self-meta"
+getDescription = "server.self-meta"
+getPluginMeta = "server.self-meta"
+isEnabled = "server.self-meta"
+getCommand = "commands.register"
+getClassLoader = "java-side"
+getFile = "java-side"
+isNaggable = "java-side"
+setNaggable = "java-side"
+onCommand = "plugin.execute-command"
+onTabComplete = "plugin.complete-command"
+getLifecycleManager = "uncovered: Paper lifecycle events (Brigadier registration) not mapped"
+getDefaultWorldGenerator = "uncovered: no world generation API"
+getDefaultBiomeProvider = "uncovered: no world generation API"
+getPluginLoader = "uncovered: no plugin loader access"
+
+[classes."org.bukkit.plugin.PluginDescriptionFile"]
+[classes."org.bukkit.plugin.PluginDescriptionFile".methods]
+"*" = "java-side: plugin descriptor values (server.self-meta)"
+
+[classes."io.papermc.paper.plugin.configuration.PluginMeta"]
+[classes."io.papermc.paper.plugin.configuration.PluginMeta".methods]
+"*" = "java-side: plugin descriptor values (server.self-meta)"
+
+[classes."org.bukkit.plugin.PluginManager"]
+[classes."org.bukkit.plugin.PluginManager".methods]
+registerEvents = "events.subscribe"
+registerEvent = "events.subscribe"
+callEvent = "partial: events.call-custom (custom events only; firing built-in events is not supported)"
+getPlugin = "partial: server.plugins (other bridged plugins are Java objects in the same JVM; native ones are metadata only)"
+getPlugins = "server.plugins"
+isPluginEnabled = "server.plugins"
+disablePlugin = "partial: an error from plugin.on-enable disables the plugin itself; disabling others is uncovered"
+addPermission = "permissions.declare"
+getPermission = "java-side: declared permissions"
+getPermissions = "java-side: declared permissions"
+removePermission = "uncovered: permissions cannot be undeclared"
+enablePlugin = "uncovered: no plugin management"
+loadPlugin = "uncovered: no plugin management"
+subscribeToPermission = "uncovered"
+unsubscribeFromPermission = "uncovered"
+getDefaultPermissions = "uncovered"
+
+[classes."org.bukkit.plugin.ServicesManager"]
+[classes."org.bukkit.plugin.ServicesManager".methods]
+register = "partial: services.provide (providers are WIT interfaces, not Java objects; Java objects only between bridged plugins)"
+getRegistration = "partial: services.provider"
+load = "partial: services.provider"
+isProvidedFor = "services.provider"
+getRegistrations = "partial: services.provider"
+unregister = "uncovered: providers are removed with the plugin only"
+unregisterAll = "uncovered: providers are removed with the plugin only"
+getKnownServices = "uncovered"
+
+[classes."org.bukkit.plugin.RegisteredServiceProvider"]
+[classes."org.bukkit.plugin.RegisteredServiceProvider".methods]
+"*" = "partial: services.provider"
+
+[classes."org.bukkit.plugin.ServicePriority"]
+type = "types.priority"
+[classes."org.bukkit.plugin.ServicePriority".fields]
+"*" = "types.priority"
+
+# Vault's economy is the Rustic economy service (rustic:services).
+[classes."net.milkbowl.vault.economy.Economy"]
+type = "partial: economy (rustic:services; amounts in minor units, single currency)"
+[classes."net.milkbowl.vault.economy.Economy".methods]
+getBalance = "economy.balance"
+has = "economy.has"
+depositPlayer = "economy.deposit"
+withdrawPlayer = "economy.withdraw"
+format = "economy.format"
+currencyNamePlural = "economy.currency-name"
+currencyNameSingular = "economy.currency-name"
+isEnabled = "services.provider"
+getName = "services.provider"
+
+[classes."net.milkbowl.vault.permission.Permission"]
+type = "partial: permission-provider (rustic:services)"
+[classes."net.milkbowl.vault.permission.Permission".methods]
+has = "permission-provider.check"
+playerHas = "permission-provider.check"
+getPlayerGroups = "permission-provider.groups"
+getPrimaryGroup = "permission-provider.primary-group"
+playerAddGroup = "permission-provider.add-group"
+playerRemoveGroup = "permission-provider.remove-group"
+playerAdd = "permission-provider.set-node"
+playerRemove = "permission-provider.set-node"
+
+[classes."net.milkbowl.vault.chat.Chat"]
+type = "partial: chat-meta (rustic:services)"
+[classes."net.milkbowl.vault.chat.Chat".methods]
+getPlayerPrefix = "chat-meta.prefix"
+getPlayerSuffix = "chat-meta.suffix"
+getGroupPrefix = "chat-meta.group-prefix"
+
+# ------------------------------------------------------------------ server facade
+
+[classes."org.bukkit.Bukkit"]
+inherits = ["org.bukkit.Server"]
+
+[classes."org.bukkit.Server"]
+inherits = ["org.bukkit.plugin.messaging.PluginMessageRecipient"]
+[classes."org.bukkit.Server".methods]
+getOnlinePlayers = "players.online"
+getPlayer = "players.by-name"
+getPlayerExact = "players.by-name"
+matchPlayer = "partial: players.online + players.name (prefix match java-side)"
+getOfflinePlayer = "partial: server.offline-player (name to UUID); offline data beyond name, UUID and op is not exposed"
+getOfflinePlayerIfCached = "partial: server.offline-player"
+getOperators = "server.operators"
+broadcastMessage = "server.broadcast"
+broadcast = "partial: server.broadcast (the permission-filtered form via players.online + permissions.has)"
+dispatchCommand = "partial: server.dispatch-command (console sender only; running as a player is uncovered)"
+getConsoleSender = "types.command-sender"
+getScheduler = "java-side: scheduler facade"
+getPluginManager = "java-side: plugin manager facade"
+getServicesManager = "java-side: services facade"
+getMessenger = "java-side: messaging facade"
+getScoreboardManager = "java-side: scoreboards facade"
+createBossBar = "bossbars.create"
+createInventory = "partial: menus.open (chest-like menus of 1 to 6 rows; other inventory types uncovered)"
+getMaxPlayers = "server.max-players"
+getMotd = "server.motd"
+motd = "server.motd"
+getVersion = "server.version"
+getBukkitVersion = "server.version"
+getMinecraftVersion = "server.version"
+getName = "server.version"
+getTPS = "server.get-tick-stats"
+getAverageTickTime = "server.get-tick-stats"
+getTickTimes = "partial: server.get-tick-stats (mean only)"
+getLogger = "logging.log"
+isPrimaryThread = "scheduler.is-main"
+getCurrentTick = "scheduler.current-tick"
+getWorlds = "worlds.all"
+getWorld = "partial: worlds.all (dimension ids such as minecraft:overworld, not folder names; lookup by UID uncovered)"
+getPluginCommand = "commands.register"
+getCommandMap = "partial: commands.register (string usages)"
+getServer = "java-side"
+getGlobalRegionScheduler = "scheduler.run-later"
+getRegionScheduler = "scheduler.run-later"
+getAsyncScheduler = "scheduler.run-async"
+isOwnedByCurrentRegion = "scheduler.is-main"
+isGlobalTickThread = "scheduler.is-main"
+createBlockData = "partial: types.block-state parsed java-side (a block's default properties need the block registry)"
+getMaxWorldSize = "uncovered"
+spigot = "java-side: Spigot sub-facade (its members are listed separately)"
+
+# ------------------------------------------------------------------ commands
+
+[classes."org.bukkit.command.CommandExecutor"]
+type = "plugin.execute-command"
+[classes."org.bukkit.command.CommandExecutor".methods]
+onCommand = "plugin.execute-command"
+
+[classes."org.bukkit.command.TabCompleter"]
+type = "plugin.complete-command"
+[classes."org.bukkit.command.TabCompleter".methods]
+onTabComplete = "plugin.complete-command"
+
+[classes."org.bukkit.command.TabExecutor"]
+inherits = ["org.bukkit.command.CommandExecutor", "org.bukkit.command.TabCompleter"]
+
+[classes."org.bukkit.command.PluginCommand"]
+inherits = ["org.bukkit.command.Command"]
+[classes."org.bukkit.command.PluginCommand".methods]
+setExecutor = "commands.register"
+setTabCompleter = "commands.register"
+getExecutor = "java-side"
+getTabCompleter = "java-side"
+getPlugin = "java-side"
+
+[classes."org.bukkit.command.Command"]
+type = "partial: commands.register (string usages; Bukkit commands take raw string arguments)"
+[classes."org.bukkit.command.Command".methods]
+getName = "java-side: command spec"
+getLabel = "java-side: command spec"
+getAliases = "java-side: command spec"
+setAliases = "commands.register"
+getDescription = "java-side: command spec"
+setDescription = "commands.register"
+getUsage = "java-side: command spec"
+setUsage = "commands.register"
+getPermission = "java-side: command spec"
+setPermission = "commands.register"
+getPermissionMessage = "java-side"
+setPermissionMessage = "java-side"
+permissionMessage = "java-side"
+testPermission = "permissions.has"
+testPermissionSilent = "permissions.has"
+execute = "plugin.execute-command"
+tabComplete = "plugin.complete-command"
+register = "commands.register"
+unregister = "commands.unregister"
+isRegistered = "java-side"
+setLabel = "commands.register"
+broadcastCommandMessage = "partial: server.broadcast"
+
+[classes."org.bukkit.command.defaults.BukkitCommand"]
+inherits = ["org.bukkit.command.Command"]
+
+[classes."org.bukkit.command.CommandMap"]
+[classes."org.bukkit.command.CommandMap".methods]
+register = "partial: commands.register (string usages)"
+registerAll = "partial: commands.register (string usages)"
+getCommand = "java-side"
+getKnownCommands = "partial: java-side, commands of bridged plugins only"
+
+[classes."org.bukkit.command.SimpleCommandMap"]
+inherits = ["org.bukkit.command.CommandMap"]
+
+[classes."org.bukkit.command.CommandSender"]
+type = "types.command-sender"
+inherits = ["org.bukkit.permissions.Permissible", "net.kyori.adventure.audience.Audience"]
+[classes."org.bukkit.command.CommandSender".methods]
+sendMessage = "commands.reply"
+sendRichMessage = "commands.reply"
+sendPlainMessage = "commands.reply"
+getName = "players.name"
+name = "players.name"
+getServer = "java-side"
+spigot = "java-side"
+
+[classes."org.bukkit.command.CommandSender$Spigot"]
+[classes."org.bukkit.command.CommandSender$Spigot".methods]
+sendMessage = "commands.reply"
+
+[classes."org.bukkit.command.ConsoleCommandSender"]
+type = "types.command-sender"
+inherits = ["org.bukkit.command.CommandSender"]
+
+[classes."org.bukkit.command.BlockCommandSender"]
+type = "uncovered: command blocks are not exposed"
+
+# ------------------------------------------------------------------ permissions
+
+[classes."org.bukkit.permissions.Permissible"]
+inherits = ["org.bukkit.permissions.ServerOperator"]
+[classes."org.bukkit.permissions.Permissible".methods]
+hasPermission = "permissions.has"
+isPermissionSet = "partial: permission-provider.check (tristate, only with a provider)"
+addAttachment = "partial: permission-provider.set-node (only with a provider; no temporary attachments)"
+removeAttachment = "partial: permission-provider.set-node"
+recalculatePermissions = "java-side: no-op"
+getEffectivePermissions = "uncovered: no listing of effective permissions"
+
+[classes."org.bukkit.permissions.ServerOperator"]
+[classes."org.bukkit.permissions.ServerOperator".methods]
+isOp = "players.is-op"
+setOp = "players.set-op"
+
+[classes."org.bukkit.permissions.Permission"]
+type = "permissions.declare"
+[classes."org.bukkit.permissions.Permission".methods]
+"*" = "java-side: permission declaration (permissions.declare)"
+
+[classes."org.bukkit.permissions.PermissionDefault"]
+type = "types.permission-default"
+[classes."org.bukkit.permissions.PermissionDefault".fields]
+"*" = "types.permission-default"
+[classes."org.bukkit.permissions.PermissionDefault".methods]
+"*" = "types.permission-default"
+
+[classes."org.bukkit.permissions.PermissionAttachment"]
+type = "partial: permission-provider.set-node (only with a provider)"
+[classes."org.bukkit.permissions.PermissionAttachment".methods]
+setPermission = "partial: permission-provider.set-node"
+unsetPermission = "partial: permission-provider.set-node"
+remove = "partial: permission-provider.set-node"
+
+# ------------------------------------------------------------------ scheduler
+
+[classes."org.bukkit.scheduler.BukkitScheduler"]
+[classes."org.bukkit.scheduler.BukkitScheduler".methods]
+runTask = "scheduler.run-later"
+runTaskLater = "scheduler.run-later"
+runTaskTimer = "scheduler.run-timer"
+runTaskAsynchronously = "scheduler.run-async"
+runTaskLaterAsynchronously = "scheduler.run-async"
+runTaskTimerAsynchronously = "scheduler.run-async-timer"
+scheduleSyncDelayedTask = "scheduler.run-later"
+scheduleSyncRepeatingTask = "scheduler.run-timer"
+scheduleAsyncDelayedTask = "scheduler.run-async"
+scheduleAsyncRepeatingTask = "scheduler.run-async-timer"
+cancelTask = "scheduler.cancel"
+cancelTasks = "scheduler.cancel"
+callSyncMethod = "partial: scheduler.run-later + a Java future"
+isCurrentlyRunning = "java-side: task state"
+isQueued = "java-side: task state"
+getPendingTasks = "java-side: task state"
+getActiveWorkers = "java-side: task state"
+getMainThreadExecutor = "scheduler.run-later"
+
+[classes."org.bukkit.scheduler.BukkitRunnable"]
+type = "scheduler.run-later"
+[classes."org.bukkit.scheduler.BukkitRunnable".methods]
+runTask = "scheduler.run-later"
+runTaskLater = "scheduler.run-later"
+runTaskTimer = "scheduler.run-timer"
+runTaskAsynchronously = "scheduler.run-async"
+runTaskLaterAsynchronously = "scheduler.run-async"
+runTaskTimerAsynchronously = "scheduler.run-async-timer"
+cancel = "scheduler.cancel"
+isCancelled = "java-side: task state"
+getTaskId = "java-side: task id"
+run = "plugin.run-task"
+
+[classes."org.bukkit.scheduler.BukkitTask"]
+[classes."org.bukkit.scheduler.BukkitTask".methods]
+cancel = "scheduler.cancel"
+getTaskId = "java-side: task id"
+isCancelled = "java-side: task state"
+isSync = "java-side: task state"
+getOwner = "java-side"
+
+[classes."io.papermc.paper.threadedregions.scheduler.GlobalRegionScheduler"]
+[classes."io.papermc.paper.threadedregions.scheduler.GlobalRegionScheduler".methods]
+execute = "scheduler.run-later"
+run = "scheduler.run-later"
+runDelayed = "scheduler.run-later"
+runAtFixedRate = "scheduler.run-timer"
+cancelTasks = "scheduler.cancel"
+
+[classes."io.papermc.paper.threadedregions.scheduler.RegionScheduler"]
+[classes."io.papermc.paper.threadedregions.scheduler.RegionScheduler".methods]
+execute = "scheduler.run-later"
+run = "scheduler.run-later"
+runDelayed = "scheduler.run-later"
+runAtFixedRate = "scheduler.run-timer"
+
+[classes."io.papermc.paper.threadedregions.scheduler.EntityScheduler"]
+[classes."io.papermc.paper.threadedregions.scheduler.EntityScheduler".methods]
+execute = "scheduler.run-later"
+run = "scheduler.run-later"
+runDelayed = "scheduler.run-later"
+runAtFixedRate = "scheduler.run-timer"
+
+[classes."io.papermc.paper.threadedregions.scheduler.AsyncScheduler"]
+[classes."io.papermc.paper.threadedregions.scheduler.AsyncScheduler".methods]
+runNow = "scheduler.run-async"
+runDelayed = "scheduler.run-async"
+runAtFixedRate = "scheduler.run-async-timer"
+cancelTasks = "scheduler.cancel"
+
+[classes."io.papermc.paper.threadedregions.scheduler.ScheduledTask"]
+[classes."io.papermc.paper.threadedregions.scheduler.ScheduledTask".methods]
+cancel = "scheduler.cancel"
+"*" = "java-side: task state"
+
+# ------------------------------------------------------------------ events: infrastructure
+
+[classes."org.bukkit.event.Listener"]
+type = "events.subscribe"
+
+[classes."org.bukkit.event.EventHandler"]
+type = "events.subscribe"
+[classes."org.bukkit.event.EventHandler".methods]
+priority = "types.priority"
+ignoreCancelled = "events.subscribe"
+
+[classes."org.bukkit.event.EventPriority"]
+type = "types.priority"
+[classes."org.bukkit.event.EventPriority".fields]
+"*" = "types.priority"
+[classes."org.bukkit.event.EventPriority".methods]
+"*" = "types.priority"
+
+[classes."org.bukkit.event.HandlerList"]
+type = "events.subscribe"
+[classes."org.bukkit.event.HandlerList".methods]
+"<init>" = "java-side"
+unregisterAll = "events.unsubscribe"
+unregister = "events.unsubscribe"
+register = "events.subscribe"
+getRegisteredListeners = "java-side: bridged listeners only"
+bakeAll = "java-side"
+bake = "java-side"
+
+[classes."org.bukkit.event.Event"]
+type = "partial: built-in events map to Rustic events; plugin-defined subclasses become events.call-custom payloads"
+[classes."org.bukkit.event.Event".methods]
+"<init>" = "partial: events.call-custom (custom events)"
+getEventName = "java-side"
+isAsynchronous = "java-side"
+getHandlers = "java-side"
+callEvent = "partial: events.call-custom (custom events only)"
+
+[classes."org.bukkit.event.Cancellable"]
+[classes."org.bukkit.event.Cancellable".methods]
+isCancelled = "java-side: cancelled field of the event record"
+setCancelled = "java-side: cancelled field of the event record"
+
+[classes."org.bukkit.event.EventException"]
+type = "java-side"
+
+[classes."org.bukkit.plugin.EventExecutor"]
+type = "events.subscribe"
+
+[classes."org.bukkit.plugin.RegisteredListener"]
+type = "java-side"
+[classes."org.bukkit.plugin.RegisteredListener".methods]
+"*" = "java-side"
+
+# ------------------------------------------------------------------ events: the 25 Rustic events
+
+[classes."org.bukkit.event.player.PlayerEvent"]
+[classes."org.bukkit.event.player.PlayerEvent".methods]
+getPlayer = "java-side: player field of the event record"
+
+[classes."org.bukkit.event.player.AsyncPlayerPreLoginEvent"]
+type = "events.player-pre-login"
+inherits = ["org.bukkit.event.Event"]
+[classes."org.bukkit.event.player.AsyncPlayerPreLoginEvent".methods]
+getName = "events.player-pre-login"
+getUniqueId = "events.player-pre-login"
+getAddress = "events.player-pre-login"
+getRawAddress = "events.player-pre-login"
+getHostname = "uncovered: virtual host not in the record"
+getLoginResult = "events.player-pre-login"
+setLoginResult = "events.player-pre-login"
+getKickMessage = "events.player-pre-login"
+setKickMessage = "events.player-pre-login"
+kickMessage = "events.player-pre-login"
+disallow = "events.player-pre-login"
+allow = "events.player-pre-login"
+getPlayerProfile = "uncovered: game profile (skin textures) not exposed"
+setPlayerProfile = "uncovered: game profile not exposed"
+
+[classes."org.bukkit.event.player.AsyncPlayerPreLoginEvent$Result"]
+[classes."org.bukkit.event.player.AsyncPlayerPreLoginEvent$Result".fields]
+"*" = "events.player-pre-login"
+
+[classes."org.bukkit.event.player.PlayerLoginEvent"]
+type = "partial: events.player-pre-login (no later login stage with a Player object)"
+inherits = ["org.bukkit.event.player.PlayerEvent"]
+[classes."org.bukkit.event.player.PlayerLoginEvent".methods]
+disallow = "partial: events.player-pre-login"
+allow = "partial: events.player-pre-login"
+getResult = "partial: events.player-pre-login"
+setResult = "partial: events.player-pre-login"
+getKickMessage = "partial: events.player-pre-login"
+setKickMessage = "partial: events.player-pre-login"
+kickMessage = "partial: events.player-pre-login"
+getAddress = "partial: events.player-pre-login"
+
+[classes."org.bukkit.event.player.PlayerLoginEvent$Result"]
+[classes."org.bukkit.event.player.PlayerLoginEvent$Result".fields]
+"*" = "partial: events.player-pre-login"
+
+[classes."org.bukkit.event.player.PlayerJoinEvent"]
+type = "events.player-join"
+inherits = ["org.bukkit.event.player.PlayerEvent", "org.bukkit.event.Event"]
+[classes."org.bukkit.event.player.PlayerJoinEvent".methods]
+getJoinMessage = "events.player-join"
+setJoinMessage = "events.player-join"
+joinMessage = "events.player-join"
+
+[classes."org.bukkit.event.player.PlayerQuitEvent"]
+type = "events.player-quit"
+inherits = ["org.bukkit.event.player.PlayerEvent", "org.bukkit.event.Event"]
+[classes."org.bukkit.event.player.PlayerQuitEvent".methods]
+getQuitMessage = "events.player-quit"
+setQuitMessage = "events.player-quit"
+quitMessage = "events.player-quit"
+getReason = "uncovered: quit reason not in the record"
+
+[classes."org.bukkit.event.player.AsyncPlayerChatEvent"]
+type = "events.player-chat"
+inherits = ["org.bukkit.event.player.PlayerEvent", "org.bukkit.event.Cancellable", "org.bukkit.event.Event"]
+[classes."org.bukkit.event.player.AsyncPlayerChatEvent".methods]
+getMessage = "events.player-chat"
+setMessage = "uncovered: the signed message is read-only (only its display can change)"
+getFormat = "partial: events.player-chat display (format applied java-side)"
+setFormat = "partial: events.player-chat display (format applied java-side)"
+getRecipients = "uncovered: recipients cannot be filtered"
+
+[classes."org.bukkit.event.player.PlayerChatEvent"]
+inherits = ["org.bukkit.event.player.AsyncPlayerChatEvent"]
+
+[classes."io.papermc.paper.event.player.AsyncChatEvent"]
+type = "events.player-chat"
+inherits = ["io.papermc.paper.event.player.AbstractChatEvent"]
+
+[classes."io.papermc.paper.event.player.AbstractChatEvent"]
+inherits = ["org.bukkit.event.player.PlayerEvent", "org.bukkit.event.Cancellable", "org.bukkit.event.Event"]
+[classes."io.papermc.paper.event.player.AbstractChatEvent".methods]
+message = "events.player-chat"
+originalMessage = "events.player-chat"
+signedMessage = "events.player-chat"
+renderer = "partial: events.player-chat display (one rendering for every viewer)"
+viewers = "uncovered: recipients cannot be filtered"
+
+[classes."io.papermc.paper.chat.ChatRenderer"]
+type = "partial: events.player-chat display (one rendering for every viewer)"
+[classes."io.papermc.paper.chat.ChatRenderer".methods]
+"*" = "partial: events.player-chat display"
+
+[classes."org.bukkit.event.player.PlayerCommandPreprocessEvent"]
+type = "events.player-command"
+inherits = ["org.bukkit.event.player.PlayerEvent", "org.bukkit.event.Cancellable", "org.bukkit.event.Event"]
+[classes."org.bukkit.event.player.PlayerCommandPreprocessEvent".methods]
+getMessage = "events.player-command"
+setMessage = "uncovered: the command line is read-only"
+getRecipients = "uncovered"
+
+[classes."org.bukkit.event.server.ServerCommandEvent"]
+type = "events.server-command"
+inherits = ["org.bukkit.event.Cancellable", "org.bukkit.event.Event"]
+[classes."org.bukkit.event.server.ServerCommandEvent".methods]
+getCommand = "events.server-command"
+setCommand = "uncovered: the command line is read-only"
+getSender = "types.command-sender"
+
+[classes."org.bukkit.event.player.PlayerMoveEvent"]
+type = "events.player-move"
+inherits = ["org.bukkit.event.player.PlayerEvent", "org.bukkit.event.Cancellable", "org.bukkit.event.Event"]
+[classes."org.bukkit.event.player.PlayerMoveEvent".methods]
+getFrom = "events.player-move"
+getTo = "events.player-move"
+setTo = "uncovered: the destination is read-only (cancel puts the player back)"
+setFrom = "uncovered"
+hasChangedPosition = "java-side: from/to comparison"
+hasChangedBlock = "java-side: from/to comparison"
+hasChangedOrientation = "java-side: from/to comparison"
+hasExplicitlyChangedPosition = "java-side: from/to comparison"
+hasExplicitlyChangedBlock = "java-side: from/to comparison"
+
+[classes."org.bukkit.event.player.PlayerTeleportEvent"]
+type = "events.player-teleport"
+inherits = ["org.bukkit.event.player.PlayerEvent", "org.bukkit.event.Event"]
+[classes."org.bukkit.event.player.PlayerTeleportEvent".methods]
+getFrom = "events.player-teleport"
+getTo = "events.player-teleport"
+setCancelled = "uncovered: player-teleport is not cancellable"
+isCancelled = "events.player-teleport"
+setTo = "uncovered: player-teleport is read-only"
+getCause = "uncovered: teleport cause not in the record"
+
+[classes."org.bukkit.event.player.PlayerChangedWorldEvent"]
+type = "events.player-change-world"
+inherits = ["org.bukkit.event.player.PlayerEvent", "org.bukkit.event.Event"]
+[classes."org.bukkit.event.player.PlayerChangedWorldEvent".methods]
+getFrom = "events.player-change-world"
+
+[classes."org.bukkit.event.block.BlockEvent"]
+[classes."org.bukkit.event.block.BlockEvent".methods]
+getBlock = "java-side: world + pos fields of the event record"
+
+[classes."org.bukkit.event.block.BlockBreakEvent"]
+type = "events.block-break"
+inherits = ["org.bukkit.event.block.BlockEvent", "org.bukkit.event.Cancellable", "org.bukkit.event.Event"]
+[classes."org.bukkit.event.block.BlockBreakEvent".methods]
+getPlayer = "events.block-break"
+isDropItems = "events.block-break"
+setDropItems = "events.block-break"
+getExpToDrop = "uncovered: experience not in the record"
+setExpToDrop = "uncovered: experience not in the record"
+
+[classes."org.bukkit.event.block.BlockPlaceEvent"]
+type = "events.block-place"
+inherits = ["org.bukkit.event.block.BlockEvent", "org.bukkit.event.Cancellable", "org.bukkit.event.Event"]
+[classes."org.bukkit.event.block.BlockPlaceEvent".methods]
+getPlayer = "events.block-place"
+getBlockPlaced = "events.block-place"
+getHand = "events.block-place"
+getItemInHand = "partial: inventories.get-slot of the hand used"
+getBlockAgainst = "uncovered: clicked block not in the record"
+getBlockReplacedState = "uncovered: replaced state not in the record"
+canBuild = "uncovered"
+setBuild = "uncovered"
+
+[classes."org.bukkit.event.player.PlayerInteractEvent"]
+type = "events.player-interact"
+inherits = ["org.bukkit.event.player.PlayerEvent", "org.bukkit.event.Cancellable", "org.bukkit.event.Event"]
+[classes."org.bukkit.event.player.PlayerInteractEvent".methods]
+getAction = "events.player-interact"
+getHand = "events.player-interact"
+getItem = "events.player-interact"
+getMaterial = "events.player-interact"
+hasItem = "events.player-interact"
+hasBlock = "events.player-interact"
+getClickedBlock = "events.player-interact"
+getBlockFace = "events.player-interact"
+useInteractedBlock = "partial: events.player-interact (one cancelled flag for block and item)"
+useItemInHand = "partial: events.player-interact (one cancelled flag for block and item)"
+setUseInteractedBlock = "partial: events.player-interact (one cancelled flag for block and item)"
+setUseItemInHand = "partial: events.player-interact (one cancelled flag for block and item)"
+getInteractionPoint = "uncovered: interaction point not in the record"
+isBlockInHand = "uncovered: needs the item registry"
+
+[classes."org.bukkit.event.block.Action"]
+type = "event-types.interact-action"
+[classes."org.bukkit.event.block.Action".fields]
+LEFT_CLICK_BLOCK = "event-types.interact-action"
+RIGHT_CLICK_BLOCK = "event-types.interact-action"
+LEFT_CLICK_AIR = "event-types.interact-action"
+RIGHT_CLICK_AIR = "event-types.interact-action"
+PHYSICAL = "uncovered: pressure plates/tripwire not reported"
+[classes."org.bukkit.event.block.Action".methods]
+isLeftClick = "java-side"
+isRightClick = "java-side"
+
+[classes."org.bukkit.event.player.PlayerInteractEntityEvent"]
+type = "events.player-interact-entity"
+inherits = ["org.bukkit.event.player.PlayerEvent", "org.bukkit.event.Cancellable", "org.bukkit.event.Event"]
+[classes."org.bukkit.event.player.PlayerInteractEntityEvent".methods]
+getRightClicked = "events.player-interact-entity"
+getHand = "events.player-interact-entity"
+
+[classes."org.bukkit.event.player.PlayerInteractAtEntityEvent"]
+type = "partial: events.player-interact-entity (no click position)"
+inherits = ["org.bukkit.event.player.PlayerInteractEntityEvent"]
+
+[classes."org.bukkit.event.entity.EntityEvent"]
+[classes."org.bukkit.event.entity.EntityEvent".methods]
+getEntity = "java-side: entity field of the event record"
+getEntityType = "java-side: entity-ref kind"
+
+[classes."org.bukkit.event.entity.EntityDamageEvent"]
+type = "events.entity-damage"
+inherits = ["org.bukkit.event.entity.EntityEvent", "org.bukkit.event.Cancellable", "org.bukkit.event.Event"]
+[classes."org.bukkit.event.entity.EntityDamageEvent".methods]
+getDamage = "events.entity-damage"
+setDamage = "events.entity-damage"
+getFinalDamage = "partial: events.entity-damage (amount before armour and effects)"
+getCause = "partial: events.entity-damage (damage type id mapped to the cause enum java-side)"
+getDamageSource = "partial: events.entity-damage (type id and attacker only)"
+getOriginalDamage = "uncovered: damage modifiers not in the record"
+isApplicable = "uncovered: damage modifiers not in the record"
+
+[classes."org.bukkit.event.entity.EntityDamageByEntityEvent"]
+type = "events.entity-damage"
+inherits = ["org.bukkit.event.entity.EntityDamageEvent"]
+[classes."org.bukkit.event.entity.EntityDamageByEntityEvent".methods]
+getDamager = "events.entity-damage"
+isCritical = "uncovered: critical flag not in the record"
+
+[classes."org.bukkit.event.entity.EntityDamageEvent$DamageCause"]
+type = "partial: events.entity-damage cause (damage type ids mapped java-side)"
+[classes."org.bukkit.event.entity.EntityDamageEvent$DamageCause".fields]
+"*" = "partial: events.entity-damage cause"
+
+[classes."org.bukkit.event.entity.PlayerDeathEvent"]
+type = "events.player-death"
+inherits = ["org.bukkit.event.entity.EntityDeathEvent"]
+[classes."org.bukkit.event.entity.PlayerDeathEvent".methods]
+getEntity = "events.player-death"
+getPlayer = "events.player-death"
+getDeathMessage = "events.player-death"
+setDeathMessage = "events.player-death"
+deathMessage = "events.player-death"
+getKeepInventory = "events.player-death"
+setKeepInventory = "events.player-death"
+getKeepLevel = "events.player-death"
+setKeepLevel = "events.player-death"
+getDrops = "uncovered: player-death has no drops"
+getNewExp = "uncovered"
+setNewExp = "uncovered"
+getNewLevel = "uncovered"
+setNewLevel = "uncovered"
+getNewTotalExp = "uncovered"
+setNewTotalExp = "uncovered"
+getItemsToKeep = "uncovered"
+
+[classes."org.bukkit.event.entity.EntityDeathEvent"]
+type = "events.entity-death"
+inherits = ["org.bukkit.event.entity.EntityEvent", "org.bukkit.event.Event"]
+[classes."org.bukkit.event.entity.EntityDeathEvent".methods]
+getDrops = "events.entity-death"
+getDroppedExp = "events.entity-death"
+setDroppedExp = "events.entity-death"
+getDamageSource = "uncovered: only the killer is in the record"
+setCancelled = "uncovered: entity-death is not cancellable"
+
+[classes."org.bukkit.event.player.PlayerRespawnEvent"]
+type = "events.player-respawn"
+inherits = ["org.bukkit.event.player.PlayerEvent", "org.bukkit.event.Event"]
+[classes."org.bukkit.event.player.PlayerRespawnEvent".methods]
+getRespawnLocation = "events.player-respawn"
+setRespawnLocation = "events.player-respawn"
+isBedSpawn = "uncovered: respawn reason not in the record"
+isAnchorSpawn = "uncovered: respawn reason not in the record"
+getRespawnReason = "uncovered: respawn reason not in the record"
+
+[classes."org.bukkit.event.inventory.InventoryEvent"]
+[classes."org.bukkit.event.inventory.InventoryEvent".methods]
+getInventory = "partial: menus (the plugin's own menu) or the player inventory"
+getView = "partial: menus (the plugin's own menu) or the player inventory"
+getViewers = "uncovered: viewers not tracked"
+
+[classes."org.bukkit.event.inventory.InventoryInteractEvent"]
+inherits = ["org.bukkit.event.inventory.InventoryEvent"]
+[classes."org.bukkit.event.inventory.InventoryInteractEvent".methods]
+getWhoClicked = "events.inventory-click"
+getResult = "partial: events.inventory-click cancelled flag"
+setResult = "partial: events.inventory-click cancelled flag"
+
+[classes."org.bukkit.event.inventory.InventoryClickEvent"]
+type = "events.inventory-click"
+inherits = ["org.bukkit.event.inventory.InventoryInteractEvent", "org.bukkit.event.Cancellable", "org.bukkit.event.Event"]
+[classes."org.bukkit.event.inventory.InventoryClickEvent".methods]
+getSlot = "events.inventory-click"
+getRawSlot = "events.inventory-click"
+getClick = "events.inventory-click"
+getCurrentItem = "events.inventory-click"
+getCursor = "events.inventory-click"
+getHotbarButton = "events.inventory-click"
+isLeftClick = "events.inventory-click"
+isRightClick = "events.inventory-click"
+isShiftClick = "events.inventory-click"
+getClickedInventory = "partial: events.inventory-click menu field (menu or player inventory)"
+getSlotType = "partial: derived from the slot java-side"
+setCurrentItem = "partial: menus.set-item / inventories.set-slot after the event"
+setCursor = "uncovered: cursor cannot be set"
+getAction = "uncovered: inventory action not in the record"
+
+[classes."org.bukkit.event.inventory.InventoryCloseEvent"]
+type = "events.inventory-close"
+inherits = ["org.bukkit.event.inventory.InventoryEvent", "org.bukkit.event.Event"]
+[classes."org.bukkit.event.inventory.InventoryCloseEvent".methods]
+getPlayer = "events.inventory-close"
+getReason = "uncovered: close reason not in the record"
+
+[classes."org.bukkit.event.inventory.ClickType"]
+type = "event-types.click-kind"
+[classes."org.bukkit.event.inventory.ClickType".fields]
+"*" = "event-types.click-kind"
+[classes."org.bukkit.event.inventory.ClickType".methods]
+"*" = "java-side: click-kind helpers"
+
+[classes."org.bukkit.event.player.PlayerGameModeChangeEvent"]
+type = "events.player-game-mode-change"
+inherits = ["org.bukkit.event.player.PlayerEvent", "org.bukkit.event.Cancellable", "org.bukkit.event.Event"]
+[classes."org.bukkit.event.player.PlayerGameModeChangeEvent".methods]
+getNewGameMode = "events.player-game-mode-change"
+getCause = "uncovered: cause not in the record"
+
+[classes."org.bukkit.event.server.ServerListPingEvent"]
+type = "events.server-list-ping"
+inherits = ["org.bukkit.event.Event"]
+[classes."org.bukkit.event.server.ServerListPingEvent".methods]
+getMotd = "events.server-list-ping"
+setMotd = "events.server-list-ping"
+motd = "events.server-list-ping"
+getMaxPlayers = "events.server-list-ping"
+setMaxPlayers = "events.server-list-ping"
+getNumPlayers = "events.server-list-ping"
+getAddress = "events.server-list-ping"
+getHostname = "uncovered: virtual host not in the record"
+setServerIcon = "uncovered: server icon not in the record"
+iterator = "uncovered: player sample cannot be edited"
+
+[classes."com.destroystokyo.paper.event.server.PaperServerListPingEvent"]
+type = "events.server-list-ping"
+inherits = ["org.bukkit.event.server.ServerListPingEvent"]
+[classes."com.destroystokyo.paper.event.server.PaperServerListPingEvent".methods]
+setHidePlayers = "events.server-list-ping"
+shouldHidePlayers = "events.server-list-ping"
+setNumPlayers = "uncovered: online count is read-only"
+getPlayerSample = "uncovered: player sample cannot be edited"
+getListedPlayers = "uncovered: player sample cannot be edited"
+setVersion = "uncovered: version string not in the record"
+setProtocolVersion = "uncovered: protocol version not in the record"
+getProtocolVersion = "uncovered"
+getClient = "uncovered"
+
+[classes."org.bukkit.event.world.ChunkEvent"]
+[classes."org.bukkit.event.world.ChunkEvent".methods]
+getChunk = "java-side: world + x/z fields of the event record"
+getWorld = "java-side: world field of the event record"
+
+[classes."org.bukkit.event.world.ChunkLoadEvent"]
+type = "events.chunk-load"
+inherits = ["org.bukkit.event.world.ChunkEvent", "org.bukkit.event.Event"]
+[classes."org.bukkit.event.world.ChunkLoadEvent".methods]
+isNewChunk = "events.chunk-load"
+
+[classes."org.bukkit.event.world.ChunkUnloadEvent"]
+type = "events.chunk-unload"
+inherits = ["org.bukkit.event.world.ChunkEvent", "org.bukkit.event.Event"]
+[classes."org.bukkit.event.world.ChunkUnloadEvent".methods]
+isSaveChunk = "uncovered"
+setSaveChunk = "uncovered"
+
+# ------------------------------------------------------------------ plugin messaging
+
+[classes."org.bukkit.plugin.messaging.Messenger"]
+[classes."org.bukkit.plugin.messaging.Messenger".methods]
+registerIncomingPluginChannel = "messaging.register-incoming"
+unregisterIncomingPluginChannel = "messaging.unregister-incoming"
+registerOutgoingPluginChannel = "java-side: no registration needed (messaging.send)"
+unregisterOutgoingPluginChannel = "java-side: no registration needed"
+isIncomingChannelRegistered = "java-side"
+isOutgoingChannelRegistered = "java-side"
+unregisterIncomingPluginChannels = "messaging.unregister-incoming"
+
+[classes."org.bukkit.plugin.messaging.PluginMessageListener"]
+type = "handlers.handle-plugin-message"
+[classes."org.bukkit.plugin.messaging.PluginMessageListener".methods]
+onPluginMessageReceived = "handlers.handle-plugin-message"
+
+[classes."org.bukkit.plugin.messaging.PluginMessageRecipient"]
+[classes."org.bukkit.plugin.messaging.PluginMessageRecipient".methods]
+sendPluginMessage = "messaging.send"
+getListeningPluginChannels = "uncovered: client channels not exposed"
+
+# ------------------------------------------------------------------ players and entities
+
+[classes."org.bukkit.OfflinePlayer"]
+inherits = ["org.bukkit.permissions.ServerOperator"]
+[classes."org.bukkit.OfflinePlayer".methods]
+getName = "players.name"
+getUniqueId = "types.uuid"
+isOnline = "players.is-online"
+isConnected = "players.is-online"
+getPlayer = "players.is-online"
+hasPlayedBefore = "uncovered: first-join data not exposed"
+getFirstPlayed = "uncovered: first-join data not exposed"
+getLastPlayed = "uncovered: last-seen data not exposed"
+getLastSeen = "uncovered: last-seen data not exposed"
+getLastLogin = "uncovered: last-seen data not exposed"
+isBanned = "uncovered: no ban API"
+ban = "uncovered: no ban API"
+isWhitelisted = "uncovered: no whitelist API"
+setWhitelisted = "uncovered: no whitelist API"
+getBedSpawnLocation = "uncovered: respawn point not exposed"
+getRespawnLocation = "uncovered: respawn point not exposed"
+getStatistic = "uncovered: statistics not exposed"
+getPlayerProfile = "uncovered: game profile not exposed"
+
+[classes."org.bukkit.entity.Entity"]
+type = "types.entity-ref"
+inherits = ["org.bukkit.command.CommandSender", "org.bukkit.metadata.Metadatable", "org.bukkit.persistence.PersistentDataHolder"]
+[classes."org.bukkit.entity.Entity".methods]
+getType = "types.entity-ref"
+getUniqueId = "types.entity-ref"
+getEntityId = "types.entity-ref"
+getLocation = "worlds.entity-location"
+getWorld = "worlds.entity-location"
+getX = "worlds.entity-location"
+getY = "worlds.entity-location"
+getZ = "worlds.entity-location"
+remove = "worlds.remove-entity"
+isValid = "partial: worlds.entity-location succeeds"
+getNearbyEntities = "partial: worlds.entities-near (sphere, not box)"
+teleport = "partial: players.teleport (players only; other entities uncovered)"
+teleportAsync = "partial: players.teleport (players only; other entities uncovered)"
+getFacing = "java-side: from yaw"
+getName = "partial: players.name for players; other entities uncovered"
+getServer = "java-side"
+isDead = "uncovered: no entity state"
+getVelocity = "uncovered: no entity physics"
+setVelocity = "uncovered: no entity physics"
+getCustomName = "uncovered: no entity data access"
+setCustomName = "uncovered: no entity data access"
+customName = "uncovered: no entity data access"
+setCustomNameVisible = "uncovered: no entity data access"
+isCustomNameVisible = "uncovered: no entity data access"
+getPassengers = "uncovered: no passengers API"
+addPassenger = "uncovered: no passengers API"
+removePassenger = "uncovered: no passengers API"
+getVehicle = "uncovered: no passengers API"
+isInsideVehicle = "uncovered: no passengers API"
+leaveVehicle = "uncovered: no passengers API"
+isOnGround = "uncovered: no entity state"
+setGlowing = "uncovered: no entity data access"
+isGlowing = "uncovered: no entity data access"
+setInvulnerable = "uncovered: no entity data access"
+isInvulnerable = "uncovered: no entity data access"
+setSilent = "uncovered: no entity data access"
+setGravity = "uncovered: no entity data access"
+getScoreboardTags = "uncovered: no entity data access"
+addScoreboardTag = "uncovered: no entity data access"
+removeScoreboardTag = "uncovered: no entity data access"
+getFireTicks = "uncovered: no entity state"
+setFireTicks = "uncovered: no entity state"
+getTicksLived = "uncovered: no entity state"
+getFallDistance = "uncovered: no entity state"
+setFallDistance = "uncovered: no entity state"
+getBoundingBox = "uncovered: no entity state"
+getHeight = "uncovered: no entity state"
+getWidth = "uncovered: no entity state"
+getScheduler = "scheduler.run-later"
+getChunk = "partial: from worlds.entity-location"
+isInWater = "uncovered: no entity state"
+getPose = "uncovered: no entity state"
+spigot = "java-side"
+
+[classes."org.bukkit.entity.Damageable"]
+inherits = ["org.bukkit.entity.Entity"]
+[classes."org.bukkit.entity.Damageable".methods]
+getHealth = "partial: players.health (players only)"
+setHealth = "partial: players.set-health (players only)"
+getMaxHealth = "partial: players.max-health (players only)"
+damage = "uncovered: no damage API"
+getAbsorptionAmount = "uncovered"
+setAbsorptionAmount = "uncovered"
+
+[classes."org.bukkit.entity.LivingEntity"]
+inherits = ["org.bukkit.entity.Damageable", "org.bukkit.entity.Entity"]
+[classes."org.bukkit.entity.LivingEntity".methods]
+getEyeLocation = "partial: players.get-location + eye height java-side"
+getEyeHeight = "partial: java-side constant per pose"
+getKiller = "partial: events.entity-death killer"
+getLastDamageCause = "uncovered: no damage history"
+addPotionEffect = "uncovered: no potion effects API"
+addPotionEffects = "uncovered: no potion effects API"
+removePotionEffect = "uncovered: no potion effects API"
+hasPotionEffect = "uncovered: no potion effects API"
+getPotionEffect = "uncovered: no potion effects API"
+getActivePotionEffects = "uncovered: no potion effects API"
+clearActivePotionEffects = "uncovered: no potion effects API"
+getEquipment = "partial: inventories.get-slot armour/hand slots (players only)"
+getAttribute = "uncovered: no attributes API"
+setAI = "uncovered: no AI API"
+hasAI = "uncovered: no AI API"
+getTargetBlock = "uncovered: no ray casting"
+getTargetBlockExact = "uncovered: no ray casting"
+getLineOfSight = "uncovered: no ray casting"
+hasLineOfSight = "uncovered: no ray casting"
+rayTraceBlocks = "uncovered: no ray casting"
+launchProjectile = "uncovered: no projectile API"
+setRemoveWhenFarAway = "uncovered"
+setCollidable = "uncovered"
+isInvisible = "uncovered"
+setInvisible = "uncovered"
+getNoDamageTicks = "uncovered"
+setNoDamageTicks = "uncovered"
+getMaximumNoDamageTicks = "uncovered"
+setMaximumNoDamageTicks = "uncovered"
+swingMainHand = "uncovered"
+isSwimming = "uncovered"
+isGliding = "uncovered"
+isSleeping = "uncovered"
+getArrowsInBody = "uncovered"
+playHurtAnimation = "uncovered"
+
+[classes."org.bukkit.entity.HumanEntity"]
+inherits = ["org.bukkit.entity.LivingEntity", "org.bukkit.inventory.InventoryHolder"]
+[classes."org.bukkit.entity.HumanEntity".methods]
+getName = "players.name"
+getUniqueId = "types.uuid"
+getInventory = "inventories.contents"
+getGameMode = "players.get-game-mode"
+setGameMode = "players.set-game-mode"
+getItemInHand = "inventories.get-slot"
+setItemInHand = "inventories.set-slot"
+openInventory = "partial: menus.open (plugin chest menus only)"
+closeInventory = "inventories.close-container"
+getOpenInventory = "partial: menus.open-menu (the plugin's own menus)"
+getFoodLevel = "players.food-level"
+setFoodLevel = "players.set-food-level"
+getSaturation = "players.saturation"
+setSaturation = "players.set-saturation"
+getItemOnCursor = "uncovered: cursor not exposed"
+setItemOnCursor = "uncovered: cursor not exposed"
+getEnderChest = "uncovered: ender chest not exposed"
+isBlocking = "uncovered"
+getCooldown = "uncovered: item cooldowns not exposed"
+setCooldown = "uncovered: item cooldowns not exposed"
+hasCooldown = "uncovered: item cooldowns not exposed"
+getExhaustion = "uncovered"
+setExhaustion = "uncovered"
+openWorkbench = "uncovered: only chest-like menus"
+openMerchant = "uncovered: only chest-like menus"
+openEnchanting = "uncovered: only chest-like menus"
+openAnvil = "uncovered: only chest-like menus"
+getMainHand = "uncovered"
+discoverRecipe = "uncovered: no recipe API"
+undiscoverRecipe = "uncovered: no recipe API"
+setStatistic = "uncovered"
+
+[classes."org.bukkit.entity.Player"]
+type = "types.uuid"
+inherits = [
+    "org.bukkit.entity.HumanEntity",
+    "org.bukkit.OfflinePlayer",
+    "org.bukkit.command.CommandSender",
+    "org.bukkit.plugin.messaging.PluginMessageRecipient",
+    "net.kyori.adventure.audience.Audience",
+]
+[classes."org.bukkit.entity.Player".methods]
+sendMessage = "players.send-message"
+sendRawMessage = "players.send-message"
+sendRichMessage = "players.send-message"
+sendPlainMessage = "players.send-message"
+sendActionBar = "players.send-action-bar"
+sendTitle = "players.send-title"
+showTitle = "players.send-title"
+resetTitle = "partial: players.send-title with empty text"
+playSound = "partial: players.play-sound at the player / worlds.play-sound at a location (no sound category)"
+spawnParticle = "partial: worlds.spawn-particle (visible to everyone, not only this player)"
+getLocation = "players.get-location"
+getWorld = "players.get-location"
+teleport = "players.teleport"
+teleportAsync = "players.teleport"
+getAddress = "players.address"
+getPing = "players.ping"
+getLocale = "players.locale"
+locale = "players.locale"
+getHealth = "players.health"
+setHealth = "players.set-health"
+getMaxHealth = "players.max-health"
+getLevel = "players.experience-level"
+setLevel = "players.set-experience-level"
+setAllowFlight = "players.set-flying"
+setFlying = "players.set-flying"
+kickPlayer = "players.kick"
+kick = "players.kick"
+isOnline = "players.is-online"
+getDisplayName = "java-side: display name kept by the bridge"
+setDisplayName = "java-side: display name kept by the bridge"
+displayName = "java-side: display name kept by the bridge"
+getPlayerListName = "java-side: tab name kept by the bridge"
+setPlayerListName = "tablist.set-display-name"
+playerListName = "tablist.set-display-name"
+setPlayerListHeader = "tablist.set-header-footer"
+setPlayerListFooter = "tablist.set-header-footer"
+setPlayerListHeaderFooter = "tablist.set-header-footer"
+sendPlayerListHeaderAndFooter = "tablist.set-header-footer"
+updateInventory = "java-side: no-op"
+getScoreboard = "partial: scoreboards (the main scoreboard only)"
+setScoreboard = "uncovered: per-player scoreboards (only the main scoreboard exists)"
+getPersistentDataContainer = "partial: players.get-data / players.set-data (typed values serialized java-side)"
+getExp = "uncovered: experience progress not exposed"
+setExp = "uncovered: experience progress not exposed"
+getTotalExperience = "uncovered: experience points not exposed"
+setTotalExperience = "uncovered: experience points not exposed"
+giveExp = "uncovered: experience points not exposed"
+giveExpLevels = "partial: players.set-experience-level"
+getAllowFlight = "uncovered: no flight getter"
+isFlying = "uncovered: no flight getter"
+getFlySpeed = "uncovered"
+setFlySpeed = "uncovered"
+getWalkSpeed = "uncovered"
+setWalkSpeed = "uncovered"
+hidePlayer = "uncovered: player visibility not exposed"
+showPlayer = "uncovered: player visibility not exposed"
+canSee = "uncovered: player visibility not exposed"
+hideEntity = "uncovered: entity visibility not exposed"
+showEntity = "uncovered: entity visibility not exposed"
+isSneaking = "uncovered: no player state"
+isSprinting = "uncovered: no player state"
+setSneaking = "uncovered: no player state"
+setSprinting = "uncovered: no player state"
+performCommand = "uncovered: commands run as a player (dispatch-command is console only)"
+chat = "uncovered: no chat as a player"
+sendBlockChange = "uncovered: no client-side block changes"
+sendBlockChanges = "uncovered: no client-side block changes"
+sendSignChange = "uncovered: no client-side block changes"
+sendEquipmentChange = "uncovered: no client-side changes"
+setResourcePack = "uncovered: resource packs not exposed"
+addResourcePack = "uncovered: resource packs not exposed"
+sendResourcePacks = "uncovered: resource packs not exposed"
+setCompassTarget = "uncovered"
+getCompassTarget = "uncovered"
+setBedSpawnLocation = "uncovered: respawn point not exposed"
+setRespawnLocation = "uncovered: respawn point not exposed"
+getClientBrandName = "uncovered: client brand not exposed"
+getProtocolVersion = "uncovered"
+getPlayerTime = "uncovered"
+setPlayerTime = "uncovered"
+resetPlayerTime = "uncovered"
+setPlayerWeather = "uncovered"
+resetPlayerWeather = "uncovered"
+getStatistic = "uncovered: statistics not exposed"
+incrementStatistic = "uncovered: statistics not exposed"
+getAdvancementProgress = "uncovered: advancements not exposed"
+isConversing = "uncovered: conversations"
+openBook = "uncovered: books not exposed"
+openSign = "uncovered: sign editor not exposed"
+spigot = "java-side"
+getHandle = "uncovered: server internals"
+getPlayerProfile = "uncovered: game profile not exposed"
+setPlayerProfile = "uncovered: game profile not exposed"
+getViewDistance = "uncovered"
+getClientViewDistance = "uncovered"
+isOp = "players.is-op"
+setOp = "players.set-op"
+setGameMode = "players.set-game-mode"
+getGameMode = "players.get-game-mode"
+getFoodLevel = "players.food-level"
+setFoodLevel = "players.set-food-level"
+
+[classes."org.bukkit.entity.Player$Spigot"]
+[classes."org.bukkit.entity.Player$Spigot".methods]
+sendMessage = "players.send-message"
+respawn = "uncovered"
+getHiddenPlayers = "uncovered"
+
+[classes."org.bukkit.entity.EntityType"]
+type = "types.entity-ref"
+[classes."org.bukkit.entity.EntityType".fields]
+"*" = "java-side: entity type ids (types.entity-ref kind, worlds.spawn-entity)"
+[classes."org.bukkit.entity.EntityType".methods]
+getKey = "java-side: entity type id"
+key = "java-side: entity type id"
+getName = "java-side: entity type id"
+fromName = "java-side: entity type id"
+getEntityClass = "java-side"
+isAlive = "uncovered: needs the entity registry"
+isSpawnable = "uncovered: needs the entity registry"
+
+[classes."org.bukkit.GameMode"]
+type = "types.game-mode"
+[classes."org.bukkit.GameMode".fields]
+SURVIVAL = "types.game-mode"
+CREATIVE = "types.game-mode"
+ADVENTURE = "types.game-mode"
+SPECTATOR = "types.game-mode"
+[classes."org.bukkit.GameMode".methods]
+"*" = "types.game-mode"
+
+# ------------------------------------------------------------------ adventure audiences
+
+[classes."net.kyori.adventure.audience.Audience"]
+type = "partial: players and the console as audiences"
+[classes."net.kyori.adventure.audience.Audience".methods]
+sendMessage = "players.send-message"
+sendRichMessage = "players.send-message"
+sendPlainMessage = "players.send-message"
+sendActionBar = "players.send-action-bar"
+showTitle = "players.send-title"
+sendTitlePart = "players.send-title"
+clearTitle = "partial: players.send-title with empty text"
+resetTitle = "partial: players.send-title with empty text"
+playSound = "players.play-sound"
+showBossBar = "bossbars.show"
+hideBossBar = "bossbars.hide"
+sendPlayerListHeader = "tablist.set-header-footer"
+sendPlayerListFooter = "tablist.set-header-footer"
+sendPlayerListHeaderAndFooter = "tablist.set-header-footer"
+audience = "java-side"
+audiences = "java-side"
+empty = "java-side"
+forEachAudience = "java-side"
+filterAudience = "java-side"
+get = "java-side: pointers"
+getOrDefault = "java-side: pointers"
+pointers = "java-side: pointers"
+stopSound = "uncovered: stopping sounds not exposed"
+openBook = "uncovered: books not exposed"
+sendResourcePacks = "uncovered: resource packs not exposed"
+removeResourcePacks = "uncovered: resource packs not exposed"
+clearResourcePacks = "uncovered: resource packs not exposed"
+deleteMessage = "uncovered: chat message deletion not exposed"
+
+[classes."net.kyori.adventure.audience.ForwardingAudience"]
+inherits = ["net.kyori.adventure.audience.Audience"]
+[classes."net.kyori.adventure.audience.ForwardingAudience".methods]
+audiences = "java-side"
+
+[classes."net.kyori.adventure.bossbar.BossBar"]
+type = "bossbars.create"
+[classes."net.kyori.adventure.bossbar.BossBar".methods]
+bossBar = "bossbars.create"
+name = "bossbars.set-title"
+progress = "bossbars.set-progress"
+color = "bossbars.set-color"
+overlay = "partial: bossbars.create style (fixed after creation)"
+addViewer = "bossbars.show"
+removeViewer = "bossbars.hide"
+viewers = "java-side: viewers tracked by the bridge"
+flags = "uncovered: boss bar flags not exposed"
+addFlag = "uncovered: boss bar flags not exposed"
+addFlags = "uncovered: boss bar flags not exposed"
+removeFlag = "uncovered: boss bar flags not exposed"
+hasFlag = "uncovered: boss bar flags not exposed"
+
+[classes."net.kyori.adventure.bossbar.BossBar$Color"]
+type = "bossbars.bar-color"
+[classes."net.kyori.adventure.bossbar.BossBar$Color".fields]
+"*" = "bossbars.bar-color"
+
+[classes."net.kyori.adventure.bossbar.BossBar$Overlay"]
+type = "bossbars.bar-style"
+[classes."net.kyori.adventure.bossbar.BossBar$Overlay".fields]
+"*" = "bossbars.bar-style"
+
+# ------------------------------------------------------------------ text, colours, utils (pure Java)
+
+[classes."org.bukkit.ChatColor"]
+type = "java-side: legacy colour codes converted to types.text"
+[classes."org.bukkit.ChatColor".fields]
+"*" = "java-side: legacy colour codes"
+[classes."org.bukkit.ChatColor".methods]
+"*" = "java-side: legacy colour codes"
+
+[classes."net.md_5.bungee.api.ChatColor"]
+type = "java-side: legacy colour codes converted to types.text"
+[classes."net.md_5.bungee.api.ChatColor".fields]
+"*" = "java-side: legacy colour codes"
+[classes."net.md_5.bungee.api.ChatColor".methods]
+"*" = "java-side: legacy colour codes"
+
+[classes."net.md_5.bungee.api.ChatMessageType"]
+type = "java-side: chat vs action bar (players.send-message / players.send-action-bar)"
+[classes."net.md_5.bungee.api.ChatMessageType".fields]
+"*" = "java-side: chat vs action bar"
+
+[classes."org.bukkit.NamespacedKey"]
+type = "java-side: namespaced ids"
+[classes."org.bukkit.NamespacedKey".methods]
+"*" = "java-side: namespaced ids"
+[classes."org.bukkit.NamespacedKey".fields]
+"*" = "java-side: namespaced ids"
+
+[classes."org.bukkit.Keyed"]
+[classes."org.bukkit.Keyed".methods]
+getKey = "java-side: namespaced ids"
+key = "java-side: namespaced ids"
+
+[classes."org.bukkit.util.Vector"]
+type = "java-side: types.vec3"
+[classes."org.bukkit.util.Vector".methods]
+"*" = "java-side: vector maths"
+
+[classes."org.bukkit.util.BoundingBox"]
+type = "java-side: box maths"
+[classes."org.bukkit.util.BoundingBox".methods]
+"*" = "java-side: box maths"
+
+[classes."org.bukkit.util.NumberConversions"]
+[classes."org.bukkit.util.NumberConversions".methods]
+"*" = "java-side: maths helpers"
+
+[classes."org.bukkit.util.StringUtil"]
+[classes."org.bukkit.util.StringUtil".methods]
+"*" = "java-side: string helpers"
+
+[classes."org.bukkit.util.Consumer"]
+type = "java-side"
+[classes."org.bukkit.util.Consumer".methods]
+"*" = "java-side"
+
+[classes."org.bukkit.configuration.serialization.ConfigurationSerializable"]
+type = "java-side"
+
+[classes."org.bukkit.Color"]
+type = "java-side: RGB values"
+[classes."org.bukkit.Color".methods]
+"*" = "java-side: RGB values"
+[classes."org.bukkit.Color".fields]
+"*" = "java-side: RGB values"
+
+[classes."org.bukkit.Location"]
+type = "types.location"
+[classes."org.bukkit.Location".methods]
+"*" = "java-side: types.location value maths"
+getBlock = "worlds.get-block"
+getWorld = "java-side: world id of types.location"
+setWorld = "java-side: world id of types.location"
+getChunk = "partial: chunk coordinates java-side"
+getNearbyEntities = "partial: worlds.entities-near (sphere, not box)"
+getNearbyPlayers = "partial: worlds.players + distance java-side"
+getNearbyLivingEntities = "partial: worlds.entities-near (sphere, not box)"
+isChunkLoaded = "worlds.is-chunk-loaded"
+isWorldLoaded = "worlds.all"
+getHighestBlockYAt = "worlds.highest-block-y"
+
+[classes."org.bukkit.World"]
+type = "partial: a dimension id (minecraft:overworld...); no per-world UID or folder name"
+[classes."org.bukkit.World".methods]
+getName = "partial: worlds.all (dimension id, not the folder name)"
+getKey = "worlds.all"
+key = "worlds.all"
+getBlockAt = "worlds.get-block"
+getType = "worlds.get-block"
+getBlockData = "worlds.get-block"
+setType = "worlds.set-block"
+setBlockData = "worlds.set-block"
+getHighestBlockYAt = "worlds.highest-block-y"
+getHighestBlockAt = "worlds.highest-block-y"
+getTime = "worlds.time"
+getFullTime = "worlds.time"
+setTime = "worlds.set-time"
+setFullTime = "worlds.set-time"
+hasStorm = "worlds.get-weather"
+isThundering = "worlds.get-weather"
+isClearWeather = "worlds.get-weather"
+setStorm = "worlds.set-weather"
+setThundering = "worlds.set-weather"
+setWeatherDuration = "worlds.set-weather"
+setThunderDuration = "worlds.set-weather"
+setClearWeatherDuration = "worlds.set-weather"
+getSpawnLocation = "worlds.spawn"
+setSpawnLocation = "worlds.set-spawn"
+spawnEntity = "worlds.spawn-entity"
+spawn = "partial: worlds.spawn-entity (no Java pre-spawn configuration callback; initial data as SNBT)"
+dropItem = "partial: worlds.spawn-entity (minecraft:item with SNBT)"
+dropItemNaturally = "partial: worlds.spawn-entity (minecraft:item with SNBT)"
+strikeLightning = "partial: worlds.spawn-entity (minecraft:lightning_bolt)"
+strikeLightningEffect = "partial: worlds.spawn-entity (minecraft:lightning_bolt)"
+getNearbyEntities = "partial: worlds.entities-near (sphere, not box)"
+getPlayers = "worlds.players"
+spawnParticle = "worlds.spawn-particle"
+playSound = "worlds.play-sound"
+isChunkLoaded = "worlds.is-chunk-loaded"
+setChunkForceLoaded = "worlds.keep-chunk-loaded"
+addPluginChunkTicket = "worlds.keep-chunk-loaded"
+removePluginChunkTicket = "worlds.keep-chunk-loaded"
+getChunkAt = "partial: chunk coordinates java-side"
+getChunkAtAsync = "partial: chunk coordinates java-side"
+loadChunk = "partial: worlds.keep-chunk-loaded"
+getEnvironment = "partial: from the dimension id"
+getUID = "uncovered: worlds have no UID"
+getEntities = "uncovered: no entity listing per world"
+getLivingEntities = "uncovered: no entity listing per world"
+getEntitiesByClass = "uncovered: no entity listing per world"
+getEntitiesByClasses = "uncovered: no entity listing per world"
+createExplosion = "uncovered: no explosion API"
+getDifficulty = "uncovered: no difficulty API"
+setDifficulty = "uncovered: no difficulty API"
+getGameRuleValue = "uncovered: no game rules API"
+setGameRule = "uncovered: no game rules API"
+setGameRuleValue = "uncovered: no game rules API"
+getWorldBorder = "uncovered: no world border API"
+getSeed = "uncovered"
+getMinHeight = "uncovered: world height not exposed"
+getMaxHeight = "uncovered: world height not exposed"
+getLoadedChunks = "uncovered: no chunk listing"
+getBiome = "uncovered: no biome API"
+setBiome = "uncovered: no biome API"
+getPVP = "uncovered"
+setPVP = "uncovered"
+save = "uncovered"
+getWorldFolder = "uncovered: no world folders"
+refreshChunk = "uncovered"
+regenerateChunk = "uncovered"
+unloadChunk = "uncovered"
+generateTree = "uncovered"
+getHighestBlockYAtHeightmap = "uncovered"
+rayTraceBlocks = "uncovered: no ray casting"
+rayTrace = "uncovered: no ray casting"
+getBlockState = "uncovered: no block entity API"
+
+[classes."org.bukkit.World$Environment"]
+type = "partial: from the dimension id"
+[classes."org.bukkit.World$Environment".fields]
+"*" = "partial: from the dimension id"
+
+[classes."org.bukkit.Chunk"]
+type = "partial: chunk coordinates in a dimension"
+[classes."org.bukkit.Chunk".methods]
+getX = "java-side"
+getZ = "java-side"
+getWorld = "java-side"
+isLoaded = "worlds.is-chunk-loaded"
+getBlock = "worlds.get-block"
+setForceLoaded = "worlds.keep-chunk-loaded"
+isForceLoaded = "partial: worlds.keep-chunk-loaded (this plugin's tickets only)"
+addPluginChunkTicket = "worlds.keep-chunk-loaded"
+removePluginChunkTicket = "worlds.keep-chunk-loaded"
+load = "partial: worlds.keep-chunk-loaded"
+getChunkKey = "java-side"
+getEntities = "uncovered: no entity listing per chunk"
+getTileEntities = "uncovered: no block entity API"
+getChunkSnapshot = "uncovered: no chunk snapshots"
+getPersistentDataContainer = "uncovered: no chunk data"
+unload = "uncovered"
+
+[classes."org.bukkit.block.Block"]
+type = "partial: a (world, block-pos) handle over worlds.get-block / worlds.set-block"
+inherits = ["org.bukkit.metadata.Metadatable"]
+[classes."org.bukkit.block.Block".methods]
+getType = "worlds.get-block"
+setType = "worlds.set-block"
+getBlockData = "worlds.get-block"
+setBlockData = "worlds.set-block"
+getLocation = "java-side: block position"
+getX = "java-side: block position"
+getY = "java-side: block position"
+getZ = "java-side: block position"
+getWorld = "java-side: block position"
+getRelative = "java-side: block position"
+getFace = "java-side: block position"
+getChunk = "java-side: block position"
+isEmpty = "partial: worlds.get-block (air ids)"
+getState = "uncovered: no block entity API (signs, chests, spawners)"
+getDrops = "uncovered: no loot API"
+breakNaturally = "uncovered: no block breaking API"
+isLiquid = "uncovered: needs block properties (registry)"
+isPassable = "uncovered: needs block properties (registry)"
+isSolid = "uncovered: needs block properties (registry)"
+isBuildable = "uncovered: needs block properties (registry)"
+getBiome = "uncovered: no biome API"
+getLightLevel = "uncovered: no light API"
+getLightFromSky = "uncovered: no light API"
+getLightFromBlocks = "uncovered: no light API"
+isBlockPowered = "uncovered: no redstone API"
+isBlockIndirectlyPowered = "uncovered: no redstone API"
+getBlockPower = "uncovered: no redstone API"
+getBoundingBox = "uncovered: needs block shapes"
+getTemperature = "uncovered: no biome API"
+applyBoneMeal = "uncovered"
+isPreferredTool = "uncovered"
+getHardness = "uncovered: needs block properties (registry)"
+
+[classes."org.bukkit.block.BlockFace"]
+type = "types.block-face"
+[classes."org.bukkit.block.BlockFace".fields]
+"*" = "java-side: directions (types.block-face for the six axis faces)"
+[classes."org.bukkit.block.BlockFace".methods]
+"*" = "java-side: direction maths"
+
+[classes."org.bukkit.block.data.BlockData"]
+type = "types.block-state"
+[classes."org.bukkit.block.data.BlockData".methods]
+getMaterial = "types.block-state"
+getAsString = "types.block-state"
+clone = "java-side"
+matches = "java-side: property comparison"
+merge = "java-side: property merge"
+createBlockState = "uncovered: no block entity API"
+isSupported = "uncovered: needs block shapes"
+getSoundGroup = "uncovered: needs the block registry"
+
+[classes."org.bukkit.block.data.Ageable"]
+inherits = ["org.bukkit.block.data.BlockData"]
+[classes."org.bukkit.block.data.Ageable".methods]
+getAge = "java-side: types.block-state properties"
+setAge = "java-side: types.block-state properties"
+getMaximumAge = "partial: java-side table of block property ranges"
+
+[classes."org.bukkit.block.data.Directional"]
+inherits = ["org.bukkit.block.data.BlockData"]
+[classes."org.bukkit.block.data.Directional".methods]
+getFacing = "java-side: types.block-state properties"
+setFacing = "java-side: types.block-state properties"
+getFaces = "partial: java-side table of block property values"
+
+[classes."org.bukkit.block.data.Waterlogged"]
+inherits = ["org.bukkit.block.data.BlockData"]
+[classes."org.bukkit.block.data.Waterlogged".methods]
+isWaterlogged = "java-side: types.block-state properties"
+setWaterlogged = "java-side: types.block-state properties"
+
+[classes."org.bukkit.block.data.Openable"]
+inherits = ["org.bukkit.block.data.BlockData"]
+[classes."org.bukkit.block.data.Openable".methods]
+isOpen = "java-side: types.block-state properties"
+setOpen = "java-side: types.block-state properties"
+
+[classes."org.bukkit.block.data.Powerable"]
+inherits = ["org.bukkit.block.data.BlockData"]
+[classes."org.bukkit.block.data.Powerable".methods]
+isPowered = "java-side: types.block-state properties"
+setPowered = "java-side: types.block-state properties"
+
+[classes."org.bukkit.block.data.Levelled"]
+inherits = ["org.bukkit.block.data.BlockData"]
+[classes."org.bukkit.block.data.Levelled".methods]
+getLevel = "java-side: types.block-state properties"
+setLevel = "java-side: types.block-state properties"
+getMaximumLevel = "partial: java-side table of block property ranges"
+
+[classes."org.bukkit.block.data.Orientable"]
+inherits = ["org.bukkit.block.data.BlockData"]
+[classes."org.bukkit.block.data.Orientable".methods]
+getAxis = "java-side: types.block-state properties"
+setAxis = "java-side: types.block-state properties"
+
+[classes."org.bukkit.block.data.Rotatable"]
+inherits = ["org.bukkit.block.data.BlockData"]
+[classes."org.bukkit.block.data.Rotatable".methods]
+getRotation = "java-side: types.block-state properties"
+setRotation = "java-side: types.block-state properties"
+
+[classes."org.bukkit.block.data.Bisected"]
+inherits = ["org.bukkit.block.data.BlockData"]
+[classes."org.bukkit.block.data.Bisected".methods]
+getHalf = "java-side: types.block-state properties"
+setHalf = "java-side: types.block-state properties"
+
+[classes."org.bukkit.Axis"]
+type = "java-side"
+[classes."org.bukkit.Axis".fields]
+"*" = "java-side"
+
+[classes."org.bukkit.Material"]
+type = "partial: namespaced item/block ids (types.item-stack id, types.block-state id); properties need registry data not in the WIT"
+[classes."org.bukkit.Material".fields]
+"*" = "java-side: item and block ids"
+[classes."org.bukkit.Material".methods]
+getKey = "java-side: item and block ids"
+key = "java-side: item and block ids"
+matchMaterial = "java-side: item and block ids"
+getMaterial = "java-side: item and block ids"
+isAir = "java-side: air ids"
+isLegacy = "java-side"
+getTranslationKey = "java-side: derived from the id"
+translationKey = "java-side: derived from the id"
+createBlockData = "partial: types.block-state with no properties (defaults need the block registry)"
+isBlock = "uncovered: needs the item/block registry"
+isItem = "uncovered: needs the item/block registry"
+isSolid = "uncovered: needs the item/block registry"
+isOccluding = "uncovered: needs the item/block registry"
+isTransparent = "uncovered: needs the item/block registry"
+isFlammable = "uncovered: needs the item/block registry"
+isBurnable = "uncovered: needs the item/block registry"
+isFuel = "uncovered: needs the item/block registry"
+isEdible = "uncovered: needs the item/block registry"
+isInteractable = "uncovered: needs the item/block registry"
+isRecord = "uncovered: needs the item/block registry"
+hasGravity = "uncovered: needs the item/block registry"
+getMaxStackSize = "uncovered: needs the item/block registry"
+getMaxDurability = "uncovered: needs the item/block registry"
+getHardness = "uncovered: needs the item/block registry"
+getBlastResistance = "uncovered: needs the item/block registry"
+getEquipmentSlot = "uncovered: needs the item/block registry"
+asItemType = "uncovered: needs the item/block registry"
+asBlockType = "uncovered: needs the item/block registry"
+getData = "uncovered: legacy material data"
+
+[classes."org.bukkit.Sound"]
+type = "partial: sound event ids (players.play-sound / worlds.play-sound)"
+[classes."org.bukkit.Sound".fields]
+"*" = "java-side: sound event ids"
+[classes."org.bukkit.Sound".methods]
+"*" = "java-side: sound event ids"
+
+[classes."org.bukkit.SoundCategory"]
+type = "partial: ignored (sounds play in the default category)"
+[classes."org.bukkit.SoundCategory".fields]
+"*" = "partial: ignored"
+
+[classes."org.bukkit.Particle"]
+type = "worlds.spawn-particle"
+[classes."org.bukkit.Particle".fields]
+"*" = "java-side: particle type ids (worlds.spawn-particle)"
+[classes."org.bukkit.Particle".methods]
+"*" = "java-side: particle type ids"
+
+[classes."org.bukkit.Particle$DustOptions"]
+type = "worlds.spawn-particle"
+[classes."org.bukkit.Particle$DustOptions".methods]
+"*" = "java-side: particle options as SNBT"
+
+[classes."org.bukkit.Effect"]
+type = "uncovered: level events not exposed"
+
+# ------------------------------------------------------------------ items and inventories
+
+[classes."org.bukkit.inventory.ItemStack"]
+type = "types.item-stack"
+[classes."org.bukkit.inventory.ItemStack".methods]
+"<init>" = "types.item-stack"
+of = "types.item-stack"
+empty = "types.item-stack"
+getType = "types.item-stack"
+setType = "types.item-stack"
+getAmount = "types.item-stack"
+setAmount = "types.item-stack"
+add = "types.item-stack"
+subtract = "types.item-stack"
+isEmpty = "types.item-stack"
+clone = "java-side"
+isSimilar = "java-side: id + components comparison"
+serialize = "java-side"
+deserialize = "java-side"
+asOne = "java-side"
+asQuantity = "java-side"
+getItemMeta = "partial: types.item-stack components (SNBT data components converted java-side)"
+setItemMeta = "partial: types.item-stack components (SNBT data components converted java-side)"
+hasItemMeta = "partial: types.item-stack components (SNBT data components converted java-side)"
+editMeta = "partial: types.item-stack components (SNBT data components converted java-side)"
+getDurability = "partial: types.item-stack components (minecraft:damage)"
+setDurability = "partial: types.item-stack components (minecraft:damage)"
+getEnchantments = "partial: types.item-stack components (minecraft:enchantments)"
+addEnchantment = "partial: types.item-stack components (minecraft:enchantments)"
+addUnsafeEnchantment = "partial: types.item-stack components (minecraft:enchantments)"
+addEnchantments = "partial: types.item-stack components (minecraft:enchantments)"
+addUnsafeEnchantments = "partial: types.item-stack components (minecraft:enchantments)"
+removeEnchantment = "partial: types.item-stack components (minecraft:enchantments)"
+containsEnchantment = "partial: types.item-stack components (minecraft:enchantments)"
+getEnchantmentLevel = "partial: types.item-stack components (minecraft:enchantments)"
+displayName = "partial: types.item-stack components (custom name or the item's translated name)"
+lore = "partial: types.item-stack components (minecraft:lore)"
+getPersistentDataContainer = "partial: types.item-stack components (minecraft:custom_data)"
+getMaxStackSize = "uncovered: needs the item registry"
+getData = "uncovered: legacy material data"
+setData = "uncovered: legacy material data"
+serializeAsBytes = "uncovered: binary NBT of a stack not exposed"
+deserializeBytes = "uncovered: binary NBT of a stack not exposed"
+getI18NDisplayName = "uncovered: server-side translation not exposed"
+getMaxItemUseDuration = "uncovered: needs the item registry"
+getData0 = "uncovered"
+getDataComponent = "uncovered"
+setData0 = "uncovered"
+
+[classes."org.bukkit.inventory.meta.ItemMeta"]
+type = "partial: types.item-stack components (SNBT data components converted java-side)"
+inherits = ["org.bukkit.persistence.PersistentDataHolder"]
+[classes."org.bukkit.inventory.meta.ItemMeta".methods]
+"*" = "partial: types.item-stack components (SNBT data components converted java-side)"
+
+[classes."org.bukkit.inventory.meta.Damageable"]
+inherits = ["org.bukkit.inventory.meta.ItemMeta"]
+[classes."org.bukkit.inventory.meta.SkullMeta"]
+inherits = ["org.bukkit.inventory.meta.ItemMeta"]
+[classes."org.bukkit.inventory.meta.SkullMeta".methods]
+setOwningPlayer = "partial: types.item-stack components (minecraft:profile; skin resolved by the server)"
+setOwner = "partial: types.item-stack components (minecraft:profile; skin resolved by the server)"
+getOwningPlayer = "partial: types.item-stack components (minecraft:profile)"
+setPlayerProfile = "uncovered: game profiles not exposed"
+getPlayerProfile = "uncovered: game profiles not exposed"
+setOwnerProfile = "uncovered: game profiles not exposed"
+getOwnerProfile = "uncovered: game profiles not exposed"
+[classes."org.bukkit.inventory.meta.LeatherArmorMeta"]
+inherits = ["org.bukkit.inventory.meta.ItemMeta"]
+[classes."org.bukkit.inventory.meta.PotionMeta"]
+inherits = ["org.bukkit.inventory.meta.ItemMeta"]
+[classes."org.bukkit.inventory.meta.BookMeta"]
+inherits = ["org.bukkit.inventory.meta.ItemMeta"]
+[classes."org.bukkit.inventory.meta.EnchantmentStorageMeta"]
+inherits = ["org.bukkit.inventory.meta.ItemMeta"]
+[classes."org.bukkit.inventory.meta.FireworkMeta"]
+inherits = ["org.bukkit.inventory.meta.ItemMeta"]
+[classes."org.bukkit.inventory.meta.BannerMeta"]
+inherits = ["org.bukkit.inventory.meta.ItemMeta"]
+[classes."org.bukkit.inventory.meta.CompassMeta"]
+inherits = ["org.bukkit.inventory.meta.ItemMeta"]
+[classes."org.bukkit.inventory.meta.MapMeta"]
+inherits = ["org.bukkit.inventory.meta.ItemMeta"]
+[classes."org.bukkit.inventory.meta.BlockStateMeta"]
+type = "uncovered: block entity data in items needs the block entity API"
+
+[classes."org.bukkit.inventory.ItemFlag"]
+type = "partial: types.item-stack components (minecraft:tooltip_display)"
+[classes."org.bukkit.inventory.ItemFlag".fields]
+"*" = "partial: types.item-stack components (minecraft:tooltip_display)"
+
+[classes."org.bukkit.inventory.Inventory"]
+type = "partial: the player inventory (inventories) or a plugin chest menu (menus); container blocks uncovered"
+[classes."org.bukkit.inventory.Inventory".methods]
+getItem = "inventories.get-slot"
+setItem = "partial: inventories.set-slot (player) / menus.set-item (menu)"
+addItem = "partial: inventories.give (player); java-side for menus"
+removeItem = "partial: inventories.take (player, by id and count)"
+clear = "inventories.clear"
+getContents = "inventories.contents"
+getStorageContents = "inventories.contents"
+setContents = "partial: inventories.set-slot / menus.set-item per slot"
+setStorageContents = "partial: inventories.set-slot per slot"
+getSize = "java-side"
+contains = "inventories.contents"
+containsAtLeast = "inventories.contents"
+all = "inventories.contents"
+first = "inventories.contents"
+firstEmpty = "inventories.contents"
+isEmpty = "inventories.contents"
+remove = "partial: inventories.take"
+iterator = "inventories.contents"
+getHolder = "partial: menus (the plugin's InventoryHolder kept java-side)"
+getType = "partial: CHEST for menus, PLAYER for the player inventory"
+getViewers = "uncovered: viewers not tracked"
+getLocation = "uncovered: container blocks not exposed"
+getMaxStackSize = "uncovered"
+setMaxStackSize = "uncovered"
+close = "inventories.close-container"
+
+[classes."org.bukkit.inventory.PlayerInventory"]
+type = "inventories.contents"
+inherits = ["org.bukkit.inventory.Inventory"]
+[classes."org.bukkit.inventory.PlayerInventory".methods]
+getItemInMainHand = "inventories.get-slot"
+getItemInOffHand = "inventories.get-slot"
+setItemInMainHand = "inventories.set-slot"
+setItemInOffHand = "inventories.set-slot"
+getItemInHand = "inventories.get-slot"
+setItemInHand = "inventories.set-slot"
+getHelmet = "inventories.get-slot"
+getChestplate = "inventories.get-slot"
+getLeggings = "inventories.get-slot"
+getBoots = "inventories.get-slot"
+setHelmet = "inventories.set-slot"
+setChestplate = "inventories.set-slot"
+setLeggings = "inventories.set-slot"
+setBoots = "inventories.set-slot"
+getArmorContents = "inventories.contents"
+setArmorContents = "inventories.set-slot"
+getExtraContents = "inventories.contents"
+getHeldItemSlot = "inventories.held-slot"
+setHeldItemSlot = "uncovered: the held slot cannot be changed"
+getHolder = "java-side: the player"
+getItem = "inventories.get-slot"
+setItem = "inventories.set-slot"
+
+[classes."org.bukkit.inventory.InventoryHolder"]
+type = "partial: menus (custom holders are Java objects kept by the bridge)"
+[classes."org.bukkit.inventory.InventoryHolder".methods]
+getInventory = "partial: menus / inventories.contents"
+
+[classes."org.bukkit.inventory.InventoryView"]
+type = "partial: menus (the plugin's own menu) or the player inventory"
+[classes."org.bukkit.inventory.InventoryView".methods]
+getTopInventory = "partial: menus"
+getBottomInventory = "inventories.contents"
+getPlayer = "java-side"
+getTitle = "partial: menus.set-title (title kept java-side)"
+title = "partial: menus.set-title (title kept java-side)"
+setTitle = "menus.set-title"
+getType = "partial: CHEST for menus"
+close = "inventories.close-container"
+getItem = "partial: menus / inventories.get-slot"
+setItem = "partial: menus.set-item / inventories.set-slot"
+getCursor = "uncovered: cursor not exposed"
+setCursor = "uncovered: cursor not exposed"
+convertSlot = "java-side"
+countSlots = "java-side"
+getSlotType = "java-side"
+getOriginalTitle = "java-side"
+
+[classes."org.bukkit.event.inventory.InventoryType"]
+type = "partial: CHEST (menus) and PLAYER (inventories) only"
+[classes."org.bukkit.event.inventory.InventoryType".fields]
+CHEST = "menus.open"
+PLAYER = "inventories.contents"
+[classes."org.bukkit.event.inventory.InventoryType".methods]
+"*" = "java-side"
+
+[classes."org.bukkit.event.inventory.InventoryType$SlotType"]
+type = "java-side"
+[classes."org.bukkit.event.inventory.InventoryType$SlotType".fields]
+"*" = "java-side"
+
+[classes."org.bukkit.inventory.EquipmentSlot"]
+type = "types.hand"
+[classes."org.bukkit.inventory.EquipmentSlot".fields]
+HAND = "types.hand"
+OFF_HAND = "types.hand"
+HEAD = "inventories.get-slot"
+CHEST = "inventories.get-slot"
+LEGS = "inventories.get-slot"
+FEET = "inventories.get-slot"
+[classes."org.bukkit.inventory.EquipmentSlot".methods]
+"*" = "java-side"
+
+[classes."org.bukkit.enchantments.Enchantment"]
+type = "partial: enchantment ids in types.item-stack components"
+[classes."org.bukkit.enchantments.Enchantment".fields]
+"*" = "partial: enchantment ids in types.item-stack components"
+[classes."org.bukkit.enchantments.Enchantment".methods]
+getKey = "java-side: enchantment ids"
+key = "java-side: enchantment ids"
+getByKey = "java-side: enchantment ids"
+getByName = "java-side: enchantment ids"
+getName = "java-side: enchantment ids"
+values = "partial: vanilla enchantment ids (data-driven ones need the registry)"
+getMaxLevel = "uncovered: needs the enchantment registry"
+getStartLevel = "uncovered: needs the enchantment registry"
+canEnchantItem = "uncovered: needs the enchantment registry"
+conflictsWith = "uncovered: needs the enchantment registry"
+getItemTarget = "uncovered: needs the enchantment registry"
+isCursed = "uncovered: needs the enchantment registry"
+isTreasure = "uncovered: needs the enchantment registry"
+
+[classes."org.bukkit.persistence.PersistentDataHolder"]
+[classes."org.bukkit.persistence.PersistentDataHolder".methods]
+getPersistentDataContainer = "partial: players.get-data / players.set-data (players) and minecraft:custom_data (items); entities, chunks and blocks uncovered"
+
+[classes."org.bukkit.persistence.PersistentDataContainer"]
+type = "partial: players.get-data / players.set-data (players) and minecraft:custom_data (items); entities, chunks and blocks uncovered"
+[classes."org.bukkit.persistence.PersistentDataContainer".methods]
+"*" = "partial: players.get-data / players.set-data (players) and minecraft:custom_data (items)"
+
+[classes."org.bukkit.persistence.PersistentDataContainerView"]
+inherits = ["org.bukkit.persistence.PersistentDataContainer"]
+
+[classes."org.bukkit.persistence.PersistentDataType"]
+type = "java-side: value codecs"
+[classes."org.bukkit.persistence.PersistentDataType".fields]
+"*" = "java-side: value codecs"
+[classes."org.bukkit.persistence.PersistentDataType".methods]
+"*" = "java-side: value codecs"
+
+[classes."org.bukkit.persistence.PersistentDataAdapterContext"]
+type = "java-side: value codecs"
+[classes."org.bukkit.persistence.PersistentDataAdapterContext".methods]
+"*" = "java-side: value codecs"
+
+# ------------------------------------------------------------------ scoreboards, boss bars
+
+[classes."org.bukkit.scoreboard.ScoreboardManager"]
+[classes."org.bukkit.scoreboard.ScoreboardManager".methods]
+getMainScoreboard = "scoreboards.create-objective"
+getNewScoreboard = "uncovered: per-player scoreboards (only the main scoreboard exists)"
+
+[classes."org.bukkit.scoreboard.Scoreboard"]
+type = "partial: the main scoreboard only"
+[classes."org.bukkit.scoreboard.Scoreboard".methods]
+registerNewObjective = "scoreboards.create-objective"
+getObjective = "java-side: objectives tracked by the bridge"
+getObjectives = "java-side: objectives tracked by the bridge"
+getObjectivesByCriteria = "java-side: objectives tracked by the bridge"
+clearSlot = "scoreboards.set-display"
+registerNewTeam = "scoreboards.create-team"
+getTeam = "java-side: teams tracked by the bridge"
+getTeams = "java-side: teams tracked by the bridge"
+getEntryTeam = "java-side: teams tracked by the bridge"
+getPlayerTeam = "java-side: teams tracked by the bridge"
+resetScores = "partial: scoreboards.reset-score per known objective"
+getScores = "partial: scoreboards.get-score per known objective"
+getEntries = "java-side: entries tracked by the bridge"
+getEntityTeam = "java-side: teams tracked by the bridge"
+
+[classes."org.bukkit.scoreboard.Objective"]
+type = "partial: objectives of the main scoreboard"
+[classes."org.bukkit.scoreboard.Objective".methods]
+getName = "java-side"
+getDisplayName = "java-side"
+setDisplayName = "scoreboards.set-objective-display"
+displayName = "scoreboards.set-objective-display"
+getDisplaySlot = "java-side"
+setDisplaySlot = "scoreboards.set-display"
+getScore = "java-side: score handle"
+getScoreFor = "java-side: score handle"
+unregister = "scoreboards.remove-objective"
+getCriteria = "java-side"
+getTrackedCriteria = "java-side"
+getScoreboard = "java-side"
+isModifiable = "java-side"
+setRenderType = "uncovered: render type not exposed"
+getRenderType = "uncovered: render type not exposed"
+numberFormat = "uncovered: number formats not exposed"
+setAutoUpdateDisplay = "uncovered"
+
+[classes."org.bukkit.scoreboard.Score"]
+[classes."org.bukkit.scoreboard.Score".methods]
+setScore = "scoreboards.set-score"
+getScore = "scoreboards.get-score"
+isScoreSet = "scoreboards.get-score"
+resetScore = "scoreboards.reset-score"
+getEntry = "java-side"
+getObjective = "java-side"
+getScoreboard = "java-side"
+customName = "uncovered: score display names not exposed"
+numberFormat = "uncovered: number formats not exposed"
+
+[classes."org.bukkit.scoreboard.Team"]
+type = "partial: teams of the main scoreboard"
+[classes."org.bukkit.scoreboard.Team".methods]
+getName = "java-side"
+setPrefix = "scoreboards.set-team-prefix"
+prefix = "scoreboards.set-team-prefix"
+getPrefix = "java-side"
+setSuffix = "scoreboards.set-team-suffix"
+suffix = "scoreboards.set-team-suffix"
+getSuffix = "java-side"
+setColor = "scoreboards.set-team-color"
+color = "scoreboards.set-team-color"
+getColor = "java-side"
+addEntry = "scoreboards.team-add"
+addEntries = "scoreboards.team-add"
+addPlayer = "scoreboards.team-add"
+removeEntry = "scoreboards.team-remove"
+removeEntries = "scoreboards.team-remove"
+removePlayer = "scoreboards.team-remove"
+hasEntry = "java-side: entries tracked by the bridge"
+hasPlayer = "java-side: entries tracked by the bridge"
+getEntries = "java-side: entries tracked by the bridge"
+getSize = "java-side: entries tracked by the bridge"
+unregister = "scoreboards.remove-team"
+getScoreboard = "java-side"
+setOption = "uncovered: team options (collision, name tag visibility) not exposed"
+getOption = "uncovered: team options not exposed"
+setAllowFriendlyFire = "uncovered: team options not exposed"
+allowFriendlyFire = "uncovered: team options not exposed"
+setCanSeeFriendlyInvisibles = "uncovered: team options not exposed"
+setDisplayName = "uncovered: team display name not exposed"
+displayName = "uncovered: team display name not exposed"
+getDisplayName = "java-side"
+setNameTagVisibility = "uncovered: team options not exposed"
+
+[classes."org.bukkit.scoreboard.Team$Option"]
+type = "uncovered: team options not exposed"
+[classes."org.bukkit.scoreboard.Team$OptionStatus"]
+type = "uncovered: team options not exposed"
+
+[classes."org.bukkit.scoreboard.DisplaySlot"]
+type = "scoreboards.display-slot"
+[classes."org.bukkit.scoreboard.DisplaySlot".fields]
+SIDEBAR = "scoreboards.display-slot"
+PLAYER_LIST = "scoreboards.display-slot"
+BELOW_NAME = "scoreboards.display-slot"
+[classes."org.bukkit.scoreboard.DisplaySlot".methods]
+"*" = "java-side"
+
+[classes."org.bukkit.scoreboard.Criteria"]
+type = "java-side: criteria ids (scoreboards.create-objective)"
+[classes."org.bukkit.scoreboard.Criteria".fields]
+"*" = "java-side: criteria ids"
+[classes."org.bukkit.scoreboard.Criteria".methods]
+"*" = "java-side: criteria ids"
+
+[classes."org.bukkit.scoreboard.RenderType"]
+type = "uncovered: render type not exposed"
+
+[classes."org.bukkit.boss.BossBar"]
+type = "bossbars.create"
+[classes."org.bukkit.boss.BossBar".methods]
+setTitle = "bossbars.set-title"
+getTitle = "java-side"
+setProgress = "bossbars.set-progress"
+getProgress = "java-side"
+setColor = "bossbars.set-color"
+getColor = "java-side"
+addPlayer = "bossbars.show"
+removePlayer = "bossbars.hide"
+removeAll = "bossbars.hide"
+getPlayers = "java-side: viewers tracked by the bridge"
+setVisible = "partial: bossbars.show / bossbars.hide for every viewer"
+isVisible = "java-side"
+show = "bossbars.show"
+hide = "bossbars.hide"
+getStyle = "java-side"
+setStyle = "uncovered: style fixed at creation"
+addFlag = "uncovered: boss bar flags not exposed"
+removeFlag = "uncovered: boss bar flags not exposed"
+hasFlag = "uncovered: boss bar flags not exposed"
+
+[classes."org.bukkit.boss.KeyedBossBar"]
+inherits = ["org.bukkit.boss.BossBar"]
+
+[classes."org.bukkit.boss.BarColor"]
+type = "bossbars.bar-color"
+[classes."org.bukkit.boss.BarColor".fields]
+"*" = "bossbars.bar-color"
+
+[classes."org.bukkit.boss.BarStyle"]
+type = "bossbars.bar-style"
+[classes."org.bukkit.boss.BarStyle".fields]
+"*" = "bossbars.bar-style"
+
+[classes."org.bukkit.boss.BarFlag"]
+type = "uncovered: boss bar flags not exposed"
+
+# ------------------------------------------------------------------ small value types
+
+[classes."io.papermc.paper.threadedregions.scheduler.ScheduledTask$CancelledState"]
+type = "java-side: task state"
+[classes."io.papermc.paper.threadedregions.scheduler.ScheduledTask$CancelledState".fields]
+"*" = "java-side: task state"
+
+[classes."io.papermc.paper.threadedregions.scheduler.ScheduledTask$ExecutionState"]
+type = "java-side: task state"
+[classes."io.papermc.paper.threadedregions.scheduler.ScheduledTask$ExecutionState".fields]
+"*" = "java-side: task state"
+
+[classes."org.bukkit.plugin.messaging.PluginMessageListenerRegistration"]
+type = "java-side: messaging.register-incoming registration handle"
+[classes."org.bukkit.plugin.messaging.PluginMessageListenerRegistration".methods]
+"*" = "java-side: registration handle"
+
+[classes."org.bukkit.DyeColor"]
+type = "java-side: dye colours (values and RGB)"
+[classes."org.bukkit.DyeColor".fields]
+"*" = "java-side: dye colours"
+[classes."org.bukkit.DyeColor".methods]
+"*" = "java-side: dye colours"
+
+[classes."org.bukkit.event.Event$Result"]
+type = "partial: mapped onto the event's single cancelled flag"
+[classes."org.bukkit.event.Event$Result".fields]
+"*" = "partial: mapped onto the event's single cancelled flag"

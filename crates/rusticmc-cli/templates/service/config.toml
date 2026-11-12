@@ -1,0 +1,7 @@
+# {{name}} configuration. Copied to plugins/{{id}}/config.toml on first start; edit that copy.
+config_version = 1
+
+# Balance of a new account, in cents (10000 = 100.00).
+starting_balance = 10000
+currency_singular = "coin"
+currency_plural = "coins"

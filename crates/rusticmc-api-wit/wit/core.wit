@@ -1,0 +1,201 @@
+package rustic:api@0.1.0;
+
+interface logging {
+    use types.{log-level};
+
+    /// Write a line to the server log, prefixed with the plugin's id.
+    log: func(level: log-level, message: string);
+}
+
+/// Commands: a typed tree built from usages, completed on the client.
+interface commands {
+    use types.{text, command-sender, uuid, location, block-pos, item-stack};
+
+    type command-id = u32;
+
+    enum arg-kind {
+        /// One word ([A-Za-z0-9_.+-]).
+        word,
+        /// A quoted or unquoted string.
+        %string,
+        /// The rest of the line; must be last.
+        greedy,
+        integer,
+        number,
+        boolean,
+        /// One online player (name or selector resolving to exactly one).
+        player,
+        /// One or more players (selector allowed).
+        players,
+        /// x y z, `~` relative allowed (relative to a player sender).
+        position,
+        block-pos,
+        item,
+        /// A world (dimension) id.
+        %world,
+        /// A duration like `10s`, `5m`, `2h`, `20t`, given back in ticks.
+        duration,
+    }
+
+    record arg-spec {
+        name: string,
+        kind: arg-kind,
+        /// Inclusive bounds for integer and number.
+        min: option<f64>,
+        max: option<f64>,
+        /// Fixed suggestions offered on the client.
+        suggestions: list<string>,
+        /// Ask the plugin's `complete` export for suggestions.
+        dynamic-suggestions: bool,
+    }
+
+    variant node-spec {
+        literal(string),
+        argument(arg-spec),
+    }
+
+    /// One path through the command: nodes after the command's name.
+    /// Optional trailing arguments are expressed as separate, shorter usages.
+    record usage {
+        nodes: list<node-spec>,
+        /// Overrides the command's permission for this usage.
+        permission: option<string>,
+        description: string,
+    }
+
+    record command-spec {
+        name: string,
+        aliases: list<string>,
+        description: string,
+        /// Needed to see and run the command (none: everyone).
+        permission: option<string>,
+        /// Refuse the console.
+        players-only: bool,
+        usages: list<usage>,
+    }
+
+    variant arg-value {
+        word(string),
+        %string(string),
+        greedy(string),
+        integer(s64),
+        number(f64),
+        boolean(bool),
+        player(uuid),
+        players(list<uuid>),
+        position(location),
+        block-pos(block-pos),
+        item(item-stack),
+        %world(string),
+        duration(u64),
+    }
+
+    record command-context {
+        sender: command-sender,
+        /// The name or alias typed.
+        label: string,
+        /// Index into `command-spec.usages` that matched.
+        usage: u32,
+        args: list<tuple<string, arg-value>>,
+        /// The whole line, without slash.
+        raw: string,
+    }
+
+    record complete-context {
+        sender: command-sender,
+        /// The line typed so far, without slash.
+        raw: string,
+        /// The argument being completed.
+        argument: string,
+        /// What is typed of it so far.
+        partial: string,
+    }
+
+    /// Register a command. Every command is always reachable as `<plugin-id>:<name>`; the bare
+    /// name (and each alias) goes to the first plugin that registers it. Fails only when a usage
+    /// is invalid.
+    register: func(spec: command-spec) -> result<command-id, string>;
+    unregister: func(command: command-id);
+    /// Send a message to whoever ran a command (console or player).
+    reply: func(sender: command-sender, message: text);
+}
+
+interface scheduler {
+    type task-id = u32;
+
+    /// Run `plugin.run-task(id)` once on the main thread after `delay` ticks (0 = next tick).
+    run-later: func(delay: u64) -> task-id;
+    /// Run it every `period` ticks (>= 1) after `delay` ticks.
+    run-timer: func(delay: u64, period: u64) -> task-id;
+    /// Run `plugin.run-task(id)` in the plugin's async instance, off the tick, after `delay-ms`.
+    /// The async instance is a separate instance of the same component: it shares no memory with
+    /// the main one, cannot touch the world (calls return `main-thread-only`) and may block
+    /// (http, storage). It hands results back with `post-to-main`.
+    run-async: func(delay-ms: u64) -> task-id;
+    /// Run it every `period-ms` in the async instance.
+    run-async-timer: func(delay-ms: u64, period-ms: u64) -> task-id;
+    /// Run the named job in the async instance after `delay-ms`, handing it `payload`:
+    /// the host calls `plugin.run-job(task, job, payload)` there. This is the main -> async data
+    /// channel (jobs are registered by name in both instances during `on-enable`).
+    run-async-job: func(job: string, payload: list<u8>, delay-ms: u64) -> task-id;
+    cancel: func(task: task-id);
+    /// From the async instance: deliver `payload` to the main instance's `plugin.on-message`
+    /// on the next tick.
+    post-to-main: func(topic: string, payload: list<u8>);
+    /// Server ticks since start.
+    current-tick: func() -> u64;
+    /// Whether this call runs in the main instance (on the tick).
+    is-main: func() -> bool;
+}
+
+interface permissions {
+    use types.{command-sender, permission-default};
+
+    /// Declare a node, its default and the nodes it implies. Optional: undeclared nodes default
+    /// to `op`, and `<plugin>.*` wildcards always work.
+    declare: func(node: string, default: permission-default, description: string, children: list<tuple<string, bool>>);
+    has: func(subject: command-sender, node: string) -> bool;
+}
+
+/// Services: a plugin provides a WIT interface (exported by its component) that other plugins
+/// import; the host links them at load time. Standard ones live in `rustic:services`.
+interface services {
+    use types.{priority};
+
+    /// Declare this plugin as a provider of `iface` (fully qualified, e.g.
+    /// "rustic:services/economy@0.1.0"), which its component must export.
+    /// The highest priority provider wins; ties go to the first loaded.
+    provide: func(iface: string, priority: priority) -> result<_, string>;
+    /// The plugin id currently providing `iface`.
+    provider: func(iface: string) -> option<string>;
+}
+
+/// Host-provided key-value storage, one namespace per plugin, persisted by the server.
+interface storage {
+    get: func(key: string) -> option<list<u8>>;
+    set: func(key: string, value: list<u8>);
+    delete: func(key: string) -> bool;
+    keys: func(prefix: string) -> list<string>;
+}
+
+/// Outgoing HTTP, only with capability `network` and only to its listed domains,
+/// only from the async instance.
+interface http {
+    use types.{host-error};
+
+    record request {
+        method: string,
+        url: string,
+        headers: list<tuple<string, string>>,
+        body: list<u8>,
+        timeout-ms: u32,
+    }
+
+    record response {
+        status: u16,
+        headers: list<tuple<string, string>>,
+        body: list<u8>,
+    }
+
+    fetch: func(req: request) -> result<response, host-error>;
+}

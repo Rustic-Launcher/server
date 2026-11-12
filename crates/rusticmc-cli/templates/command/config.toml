@@ -1,0 +1,5 @@
+# {{name}} configuration. Copied to plugins/{{id}}/config.toml on first start; edit that copy.
+config_version = 1
+
+# Ticks between two heals of the same player (20 ticks = 1 second).
+cooldown_ticks = 600

@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-only
+name: BenchProbe
+version: 0.1.0
+main: rustic.bench.probe.ProbePlugin
+api-version: '1.21'
+description: Rustic benchmark tick recorder (Paper side)
+author: Rustic
+commands:
+  benchprobe:
+    description: Record tick durations
+    usage: /<command> start | stop <file>
+    permission: benchprobe.use
+permissions:
+  benchprobe.use:
+    default: op

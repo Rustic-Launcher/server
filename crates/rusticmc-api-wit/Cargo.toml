@@ -1,0 +1,15 @@
+[package]
+name = "rusticmc-api-wit"
+description = "The Rustic plugin API contract (WIT): rustic:api and rustic:services"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+wit-parser = "0.243"
+
+[lints]
+workspace = true

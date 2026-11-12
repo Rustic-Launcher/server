@@ -1,0 +1,19 @@
+[package]
+name = "rusticmc-api-macros"
+description = "Procedural macros of the Rustic guest SDK (#[plugin], #[handlers], #[event_handler], #[command])"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "3", features = ["full"] }
+proc-macro-crate = "3"
+
+[lints]
+workspace = true

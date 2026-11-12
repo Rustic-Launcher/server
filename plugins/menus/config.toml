@@ -1,0 +1,62 @@
+config_version = 1
+
+# Language of the menus: "auto" follows each player's client language (French for fr_*,
+# English otherwise), or force "en" / "fr".
+language = "auto"
+
+# Refresh live items (server info, player list) and titles of open menus every N ticks.
+refresh_ticks = 20
+
+# Warps shown by the warp selector. `commands` run from the console when a player picks the
+# warp ({player} = the player's name). `confirm = true` asks "Are you sure?" first.
+# Item ids and names: MiniMessage-like tags.
+[[warps]]
+name = "<green>Spawn"
+icon = "minecraft:grass_block"
+description = "The world spawn."
+commands = ["tp {player} 0 80 0"]
+confirm = false
+
+[[warps]]
+name = "<gold>Market"
+icon = "minecraft:emerald"
+description = "Shops and trading hall."
+commands = ["tp {player} 120 70 -45"]
+confirm = false
+
+[[warps]]
+name = "<red>Arena"
+icon = "minecraft:iron_sword"
+description = "PvP is enabled there!"
+commands = ["tp {player} -300 64 210", "title {player} actionbar {\"text\":\"PvP zone\",\"color\":\"red\"}"]
+confirm = true
+
+# Per-player settings shown as toggles (saved with the player). Other plugins can read them
+# from this plugin's per-player data key "settings" via commands, or copy the pattern.
+[[toggles]]
+id = "mention_sound"
+name = "Mention sounds"
+icon = "minecraft:note_block"
+description = ["<gray>Play a sound when someone", "<gray>mentions you in chat."]
+default = true
+
+[[toggles]]
+id = "join_messages"
+name = "Join messages"
+icon = "minecraft:oak_door"
+description = ["<gray>Show join and quit lines."]
+default = true
+
+[[toggles]]
+id = "private_messages"
+name = "Private messages"
+icon = "minecraft:writable_book"
+description = ["<gray>Accept private messages."]
+default = true
+
+[[toggles]]
+id = "particles"
+name = "Particle effects"
+icon = "minecraft:blaze_powder"
+description = ["<gray>Show cosmetic particles."]
+default = false

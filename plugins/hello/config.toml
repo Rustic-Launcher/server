@@ -1,0 +1,12 @@
+# Default configuration of the Hello plugin. Copied to the data folder on first start (the SDK
+# also writes these defaults itself when the file is missing).
+config_version = 1
+
+# MiniMessage-like tags; {name} is the joining player's name.
+welcome = "<gold>Welcome, <bold>{name}</bold>!</gold>"
+
+# Chat messages containing one of these words (case-insensitive) are cancelled.
+banned_words = ["heck", "darn"]
+
+# Shown above the hotbar every second; {seconds} and {joins} are replaced.
+action_bar = "<gray>Online <white>{seconds}s</white> · joins <white>{joins}</white>"

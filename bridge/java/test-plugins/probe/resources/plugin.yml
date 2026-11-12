@@ -1,0 +1,9 @@
+name: Probe
+version: 0.1.0
+main: rustictest.probe.ProbePlugin
+api-version: '1.21'
+description: Rustic Bridge spike probe (crashes, threads, JDBC)
+commands:
+  probe:
+    description: Probe the bridge
+    usage: /<command> <throw|exit|halt|loop|async|sqlite>

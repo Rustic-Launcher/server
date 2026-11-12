@@ -1,0 +1,38 @@
+# perms is a service provider: it enables the SDK feature `provide-permissions`, which selects the
+# component world. Cargo unifies features across a workspace, so perms is its own workspace
+# (excluded from plugins/Cargo.toml) and never shares an SDK build with ordinary plugins
+# (ADR 0032). It still builds into plugins/target (plugins/.cargo/config.toml).
+[package]
+name = "perms"
+description = "Groups, inheritance, weights, prefixes, wildcard/negated/temporary nodes and tracks; provides the permission-provider and chat-meta services"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.95"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# `provide-permissions`: the component exports rustic:services/permission-provider + chat-meta.
+rustic = { package = "rusticmc-api", path = "../../crates/rusticmc-api", features = ["provide-permissions"] }
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+# Validates rustic.plugin.toml with the server's own (strict) manifest parser.
+rusticmc-core = { path = "../../crates/rusticmc-core" }
+serde_json = "1"
+# The in-memory server running the real perms.wasm (tests/plugin.rs).
+rusticmc-test = { path = "../../crates/rusticmc-test", features = ["wasm"] }
+
+[workspace]
+
+# Same release profile as the plugins workspace: small components.
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+debug = false

@@ -1,0 +1,30 @@
+# The benchmark workload as a Rustic WASM plugin (docs/PERFORMANCE.md, "Plugin overhead"); the
+# Bukkit twin is bench/bukkit/workload. Its own workspace (it lives outside plugins/), built into
+# plugins/target like every guest:
+#   CARGO_TARGET_DIR=plugins/target cargo build --manifest-path bench/plugins/rustic-workload/Cargo.toml \
+#     --target wasm32-wasip2 --release
+[package]
+name = "bench-workload"
+description = "Rustic benchmark workload: player move, chat filter, /workload, a 1-tick task"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.95"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rustic = { package = "rusticmc-api", path = "../../../crates/rusticmc-api" }
+
+[workspace]
+
+# Same release profile as the plugins workspace (plugins/Cargo.toml).
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+debug = false

@@ -1,0 +1,141 @@
+package rustic:api@0.1.0;
+
+/// Shared value types. Records and variants here are FROZEN for the whole 0.x line once
+/// 0.1.0 ships: a minor version may add new types and new functions, never change these
+/// (see docs/API.md, "Versioning policy").
+interface types {
+    /// A player's or entity's UUID as two 64-bit halves, most significant first.
+    record uuid {
+        hi: u64,
+        lo: u64,
+    }
+
+    record vec3 {
+        x: f64,
+        y: f64,
+        z: f64,
+    }
+
+    record block-pos {
+        x: s32,
+        y: s32,
+        z: s32,
+    }
+
+    /// A point in a world. `world` is the dimension id, e.g. "minecraft:overworld".
+    record location {
+        %world: string,
+        x: f64,
+        y: f64,
+        z: f64,
+        yaw: f32,
+        pitch: f32,
+    }
+
+    enum game-mode {
+        survival,
+        creative,
+        adventure,
+        spectator,
+    }
+
+    /// A text component in vanilla's JSON chat-component format
+    /// (`{"text":"hi","color":"gold","hover_event":{...},"click_event":{...}}`).
+    /// The SDK builds these; a plain string must be JSON-quoted (`"\"hi\""`).
+    type text = string;
+
+    /// Listener priority, called in this order. `monitor` handlers observe the final
+    /// outcome and any change they return is ignored.
+    enum priority {
+        lowest,
+        low,
+        normal,
+        high,
+        highest,
+        monitor,
+    }
+
+    /// An item stack. `id` is a namespaced item id ("minecraft:diamond_sword").
+    /// `components` is the stack's data-component patch as SNBT (`{"minecraft:custom_name":...}`),
+    /// empty for the item's defaults. `count` 0 means an empty stack.
+    record item-stack {
+        id: string,
+        count: u32,
+        components: string,
+    }
+
+    /// A block state: namespaced block id plus its state properties.
+    record block-state {
+        id: string,
+        properties: list<tuple<string, string>>,
+    }
+
+    enum log-level {
+        trace,
+        debug,
+        info,
+        warn,
+        error,
+    }
+
+    /// Who runs a command or is asked for a permission.
+    variant command-sender {
+        console,
+        player(uuid),
+    }
+
+    /// An entity in a world: its network id (valid while it lives), UUID and type id.
+    record entity-ref {
+        id: u32,
+        uuid: uuid,
+        kind: string,
+    }
+
+    enum hand {
+        main-hand,
+        off-hand,
+    }
+
+    enum block-face {
+        down,
+        up,
+        north,
+        south,
+        west,
+        east,
+    }
+
+    enum weather {
+        clear,
+        rain,
+        thunder,
+    }
+
+    /// Default value of a permission node for someone the engine has no rule for.
+    enum permission-default {
+        allow,
+        deny,
+        op,
+        not-op,
+    }
+
+    /// Errors returned by host calls.
+    variant host-error {
+        /// The player is offline or unknown.
+        no-such-player,
+        /// The world (dimension) is unknown or not loaded.
+        no-such-world,
+        /// The plugin's manifest did not grant the capability this call needs.
+        capability-denied(string),
+        /// The call is only allowed on the main (tick) instance, not in an async task.
+        main-thread-only,
+        /// The call is only allowed in an async task (blocking I/O).
+        async-only,
+        /// Bad argument (message says which).
+        invalid(string),
+        /// The engine cannot do this yet (missing hook in Horizon).
+        unsupported(string),
+        /// Anything else.
+        other(string),
+    }
+}

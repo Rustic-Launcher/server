@@ -1,0 +1,12 @@
+/target
+**/target
+/.local
+/.rustic-dev
+/bridge/panel/jars
+/bench-results/*.raw
+*.rplugin
+!plugins/**/fixtures/*.rplugin
+/tools/jdk*
+
+# Portable Maven (tools/), never committed
+/tools/apache-maven*/

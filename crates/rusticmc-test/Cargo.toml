@@ -1,0 +1,28 @@
+[package]
+name = "rusticmc-test"
+description = "Test harness for Rustic plugins: an in-memory server (MockServer) driving real .wasm or native plugins in cargo test"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = ["wasm"]
+## Load `.wasm` components / `.rplugin` packages through `rusticmc-host` (wasmtime).
+## Without it only native (closure) plugins can be loaded.
+wasm = ["dep:rusticmc-host"]
+
+[dependencies]
+rusticmc-core = { path = "../rusticmc-core" }
+rusticmc-host = { path = "../rusticmc-host", optional = true }
+log = { version = "0.4.35", features = ["std"] }
+md-5 = "0.10"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tempfile = "3.27.0"
+toml = "1.2.1"
+
+[dev-dependencies]
+
+[lints]
+workspace = true

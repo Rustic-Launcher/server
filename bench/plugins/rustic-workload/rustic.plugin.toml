@@ -1,0 +1,10 @@
+# The benchmark workload (docs/PERFORMANCE.md); same behaviour as bench/bukkit/workload.
+[plugin]
+id = "bench-workload"
+name = "Bench workload"
+version = "0.1.0"
+api = "0.1"
+authors = ["Rustic contributors"]
+license = "MIT OR Apache-2.0"
+entry = "bench_workload.wasm"
+description = "Benchmark workload: player move, chat filter, /workload, a 1-tick task."

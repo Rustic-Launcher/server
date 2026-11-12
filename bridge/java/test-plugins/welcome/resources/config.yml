@@ -1,0 +1,7 @@
+# Welcome (Rustic Bridge test plugin)
+join-message: "&6Welcome, &e{player}&6!"
+quit-message: "&7{player} left the server"
+private-message: "&aHello {player}, you are visitor #{count}"
+delayed-message: "&bEnjoy your stay, {player}!"
+delay-ticks: 40
+blocked-word: "badword"

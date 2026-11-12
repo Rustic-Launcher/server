@@ -1,0 +1,28 @@
+[package]
+name = "rusticmc-api"
+description = "Guest SDK for Rustic plugins (wasm32-wasip2 components implementing rustic:api)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = ["config"]
+## TOML config helpers (`config` module); pulls the `toml` crate.
+config = ["dep:toml"]
+## This plugin implements `rustic:services/permission-provider` and `chat-meta` (component
+## world `rustic-plugin-permissions`): implement `ProvidePermissions` and `ProvideChatMeta`.
+provide-permissions = []
+## This plugin implements `rustic:services/economy` (world `rustic-plugin-economy`): implement
+## `ProvideEconomy`.
+provide-economy = []
+
+[dependencies]
+wit-bindgen = { version = "0.63", default-features = false, features = ["macros", "realloc", "std"] }
+rusticmc-api-macros = { path = "../rusticmc-api-macros", version = "0.1.0" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = { version = "1", optional = true, features = ["preserve_order"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,16 @@
+# Rustic plugin manifest; the format is specified in docs/PLUGIN_FORMAT.md.
+[plugin]
+id = "hello"
+name = "Hello"
+version = "0.1.0"
+# The plugin API this plugin targets, MAJOR.MINOR (docs/API.md, "Versioning policy").
+api = "0.1"
+authors = ["Rustic contributors"]
+license = "MIT OR Apache-2.0"
+# The component inside the package (cargo build --target wasm32-wasip2 --release).
+entry = "hello.wasm"
+description = "Minimal example plugin: join message, chat filter, /hello, a repeating task, storage."
+
+[capabilities]
+# Preopen the plugin's data folder as "/" (the SDK reads /config.toml).
+filesystem = "data-folder"

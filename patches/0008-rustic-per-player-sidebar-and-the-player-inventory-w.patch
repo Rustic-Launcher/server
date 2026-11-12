@@ -1,0 +1,231 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: BouBou <69978359+BouBouw@users.noreply.github.com>
+Date: Wed, 11 Nov 2026 03:27:08 +0100
+Subject: [PATCH] rustic: per-player sidebar and the player inventory with its
+ selected slot on Host
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/crates/horizon-client/src/game.rs b/crates/horizon-client/src/game.rs
+index 993dbe321..ef272de00 100644
+--- a/crates/horizon-client/src/game.rs
++++ b/crates/horizon-client/src/game.rs
+@@ -581,12 +581,13 @@ pub use native_criteria::NativeCriterion;
+ pub use native_data_maps::NativeDataMapType;
+ pub use native_falling::NativeFalling;
+ pub use native_hooks::{NativeClock, NativeItemEntity, NativePlayer, NativeShake};
+-pub use native_inventories::{NativeInventoryError, NativeInventoryKind};
++pub use native_inventories::{NativeInventory, NativeInventoryError, NativeInventoryKind};
+ pub use native_item_energy::ItemEnergyBuffer;
+ pub use native_mob_draw::{NativeMobRender, NativePlayerRender};
+ pub use native_player_state::{NativeAttributeModifier, NativeEffect, NativeEffectV2};
+ pub use native_reload_listeners::NativeReloadListener;
+ pub use native_server::NativeExperienceOrb;
++pub use native_server::NativeSidebar;
+ pub use native_slot_roles::NativeSlotRole;
+ pub use native_structures::{NativeStructureBlock, NativeStructureTemplate};
+ pub use native_world_columns::NativeColumnBlocks;
+diff --git a/crates/horizon-client/src/game/lan.rs b/crates/horizon-client/src/game/lan.rs
+index c8e202e69..52d97b1ed 100644
+--- a/crates/horizon-client/src/game/lan.rs
++++ b/crates/horizon-client/src/game/lan.rs
+@@ -4398,6 +4398,69 @@ mod world_spawn_sync_tests {
+             .collect()
+     }
+ 
++    /// The helpers trait mods get for a player's inventory, their open menu, their hand and the
++    /// world spawn act on the guest the hub holds.
++    #[test]
++    #[ignore = "needs prepared resources and scratch homes/cwd"]
++    fn mod_helpers_read_the_inventory_close_any_menu_name_the_hand_and_move_the_spawn() {
++        use horizon_client::mod_api::{Hand, NativeInventoryKind};
++        let mut game = super::super::native_machines::tests::server_game();
++        game.build_registries();
++        let rx = host(&mut game);
++        let guest = &mut game.lan.as_mut().unwrap().hub.guests[0];
++        guest.selected = 4;
++        guest.inventory[4] = Some(horizon_client::items::ItemStack::new("minecraft:stick", 3));
++        // The whole inventory with the selected slot, live.
++        let inventory = game
++            .native_inventory_typed(1, NativeInventoryKind::Player)
++            .unwrap();
++        assert!(inventory.online);
++        assert_eq!(inventory.selected, 4);
++        assert_eq!(inventory.slots.len(), 41);
++        assert_eq!(inventory.slots[4].as_ref().unwrap().count, 3);
++        // Any open menu closes, the client's window with it.
++        assert!(!game.native_close_container(1), "nothing open");
++        let window = game
++            .native_open_menu(1, 3, Text::literal("Shop"), Vec::new())
++            .unwrap();
++        let _ = rx.try_iter().count();
++        assert!(game.native_close_container(1));
++        assert!(game.lan.as_ref().unwrap().hub.guests[0].menu.is_none());
++        let closed: Vec<_> = rx
++            .try_iter()
++            .flat_map(|out| match out {
++                Out::Packet(body) => vec![body],
++                Out::Packets(bodies) => bodies,
++                Out::Disconnect(_) => Vec::new(),
++            })
++            .filter_map(|body| {
++                let mut r = horizon_protocol::buf::Reader::new(&body);
++                let id = r.varint().unwrap();
++                match C::decode(id, r.rest()).ok()? {
++                    C::ContainerClose(p) => Some(p.container),
++                    _ => None,
++                }
++            })
++            .collect();
++        assert_eq!(closed, [window]);
++        assert!(!game.native_close_container(2), "no such player");
++        // The hand of a player's turn, none outside one.
++        assert_eq!(game.native_acting_hand(), None);
++        game.lan_acting_uuid = Some(1);
++        game.hand = Hand::Off;
++        assert_eq!(game.native_acting_hand(), Some(Hand::Off));
++        game.lan_acting_uuid = None;
++        // The world spawn, set as /setworldspawn sets it and told to the players.
++        assert!(game.native_set_world_spawn([100, 140, -20], [225.0, -100.0]));
++        assert_eq!(
++            game.native_world_spawn(),
++            Some(([100, 140, -20], [-135.0, -90.0]))
++        );
++        assert_eq!(spawns(&rx).len(), 1);
++        assert!(!game.native_set_world_spawn([0, 64, 0], [f32::NAN, 0.0]));
++        assert_eq!(game.native_world_spawn().unwrap().0, [100, 140, -20]);
++    }
++
+     #[test]
+     #[ignore = "needs prepared resources and scratch homes/cwd"]
+     fn join_and_respawn_contexts_use_world_spawn_not_a_personal_spawn() {
+diff --git a/crates/horizon-client/src/game/native_inventories.rs b/crates/horizon-client/src/game/native_inventories.rs
+index 3df25ac09..9d8340a94 100644
+--- a/crates/horizon-client/src/game/native_inventories.rs
++++ b/crates/horizon-client/src/game/native_inventories.rs
+@@ -126,9 +126,12 @@ impl std::error::Error for NativeInventoryError {}
+ /// A player's inventory as `native_inventory` read it: its slots, and
+ /// whether it is the live one (the player is on the server) or their file's.
+ #[derive(Clone, Debug, PartialEq)]
+-pub(crate) struct NativeInventory {
++#[non_exhaustive]
++pub struct NativeInventory {
+     pub slots: Vec<Option<ItemStack>>,
+     pub online: bool,
++    /// The selected hotbar slot (0..9, Bukkit's `getHeldItemSlot`), live or the file's.
++    pub selected: usize,
+ }
+ 
+ /// `Level.inventory`'s slot numbers (the file's) for our 41.
+@@ -270,7 +273,9 @@ enum Side {
+ #[allow(dead_code, reason = "native mod API (docs/native-mods.md)")]
+ impl Game<'_> {
+     /// The player `uuid`'s inventory `kind`: the live one when they are on
+-    /// the server, else their file's. Err while they are logging in, dead,
++    /// the server, else their file's, with their selected hotbar slot (Bukkit's
++    /// `PlayerInventory.getContents` and `getHeldItemSlot`; slots as
++    /// `NativeInventoryKind` numbers them). Err while they are logging in, dead,
+     /// swapped in (inside a player's hook: call from `native_menu_clicked` or
+     /// `native_server_tick`), or when they have never played here.
+     pub(super) fn native_inventory_typed(
+@@ -281,14 +286,17 @@ impl Game<'_> {
+         match self.native_inventory_side_for(uuid, kind)? {
+             Side::Live(i) => {
+                 let host = self.lan.as_ref().expect("live");
++                let g = &host.hub.guests[i];
+                 Ok(NativeInventory {
+-                    slots: guest_slots(&host.hub.guests[i], kind),
++                    slots: guest_slots(g, kind),
+                     online: true,
++                    selected: g.selected,
+                 })
+             }
+             Side::File(level) => Ok(NativeInventory {
+                 slots: level_slots(&level, kind),
+                 online: false,
++                selected: usize::try_from(level.selected_slot).unwrap_or(0).min(8),
+             }),
+         }
+     }
+diff --git a/crates/horizon-client/src/game/native_server.rs b/crates/horizon-client/src/game/native_server.rs
+index abe9f7050..0444b5be5 100644
+--- a/crates/horizon-client/src/game/native_server.rs
++++ b/crates/horizon-client/src/game/native_server.rs
+@@ -26,9 +26,17 @@ use std::{collections::HashMap, path::PathBuf};
+ /// up to 15 lines, top first, each a text on the left and, where the score's
+ /// number would be, an optional text on the right. API 49.
+ #[derive(Clone, Debug, Default, PartialEq)]
+-pub(crate) struct NativeSidebar {
+-    pub(crate) title: Text,
+-    pub(crate) lines: Vec<(Text, Option<Text>)>,
++#[non_exhaustive]
++pub struct NativeSidebar {
++    pub title: Text,
++    pub lines: Vec<(Text, Option<Text>)>,
++}
++
++impl NativeSidebar {
++    /// A sidebar titled `title` with `lines`, top first (the first 15 are shown).
++    pub fn new(title: Text, lines: Vec<(Text, Option<Text>)>) -> Self {
++        Self { title, lines }
++    }
+ }
+ 
+ /// The objective a mod's sidebar is sent as: the player's client only; the
+diff --git a/crates/horizon-client/src/mod_api.rs b/crates/horizon-client/src/mod_api.rs
+index 1b21376da..1f32b44ad 100644
+--- a/crates/horizon-client/src/mod_api.rs
++++ b/crates/horizon-client/src/mod_api.rs
+@@ -26,8 +26,10 @@ pub use crate::game::NativeChunkSnapshot;
+ pub use crate::game::NativeEffect;
+ pub use crate::game::NativeEffectV2;
+ pub use crate::game::NativeFluidTank;
++pub use crate::game::NativeInventory;
+ pub use crate::game::NativeInventoryError;
+ pub use crate::game::NativeInventoryKind;
++pub use crate::game::NativeSidebar;
+ pub use crate::game::NativeSlotRole;
+ pub use crate::game::native_block_entity_draw::{BlockEntityDraw, CubeFace};
+ pub use crate::game::native_client_services::{
+diff --git a/tools/native-hook-fragments/inventory_read.json b/tools/native-hook-fragments/inventory_read.json
+new file mode 100644
+index 000000000..8c0d03b40
+--- /dev/null
++++ b/tools/native-hook-fragments/inventory_read.json
+@@ -0,0 +1,18 @@
++{
++  "hooks": [],
++  "helpers": [
++    {
++      "name": "inventory",
++      "target": "horizon_client::game::native_inventories::Game<'_>::native_inventory"
++    },
++    {
++      "name": "inventory_typed",
++      "target": "horizon_client::game::native_inventories::Game<'_>::native_inventory_typed"
++    }
++  ],
++  "rust_summary": "any player's whole inventory, ender chest, cursor or crafting grid with the selected hotbar slot, live or from their file (`native_inventory`, `native_inventory_typed`).",
++  "doc_summary": "`native_inventory(uuid, kind)` reads a player's inventory `kind` (`Player`: the 41 slots, hotbar, main, armour and off hand; `Ender`; `Cursor`; `Crafting`) with their selected hotbar slot, live when they are on the server and from their file when away (Bukkit's `PlayerInventory.getContents`, `getHeldItemSlot`); `_typed` returns `NativeInventoryError`. API @API:inventory_read@.",
++  "comments": [
++    "crates/horizon-client/src/game/native_inventories.rs"
++  ]
++}
+diff --git a/tools/native-hook-fragments/sidebar_host.json b/tools/native-hook-fragments/sidebar_host.json
+new file mode 100644
+index 000000000..7210b1baf
+--- /dev/null
++++ b/tools/native-hook-fragments/sidebar_host.json
+@@ -0,0 +1,12 @@
++{
++  "hooks": [],
++  "helpers": [
++    {
++      "name": "sidebar",
++      "target": "horizon_client::game::native_server::Game<'_>::native_sidebar"
++    }
++  ],
++  "rust_summary": "a sidebar shown to one player alone, on `Host` (`native_sidebar`).",
++  "doc_summary": "`native_sidebar(uuid, Some(&NativeSidebar::new(title, lines)))` shows one player a sidebar of up to 15 lines, each with an optional right-hand text, that only their client holds (Bukkit's per-player scoreboard sidebar); `None` takes it away. Until now a mixin helper; the server's own scoreboard and teams stay those of the vanilla commands. API @API:sidebar_host@.",
++  "comments": []
++}

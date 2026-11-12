@@ -1,0 +1,14 @@
+# Rustic plugin manifest (docs/PLUGIN_FORMAT.md).
+[plugin]
+id = "menus"
+name = "Menus"
+version = "0.1.0"
+api = "0.1"
+authors = ["Rustic contributors"]
+license = "MIT OR Apache-2.0"
+entry = "menus.wasm"
+description = "Chest-menu demo and recipe book: main menu, warps, settings toggles, paginated player heads, confirmation dialogs."
+
+[capabilities]
+# config.toml lives in the data folder.
+filesystem = "data-folder"

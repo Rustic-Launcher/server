@@ -1,0 +1,31 @@
+# {{name}}
+
+{{description}}
+
+A [Rustic](https://github.com/Rustic-Launcher/server) plugin (template: `{{template}}`).
+
+## Develop
+
+```sh
+rustic build          # compile to wasm32-wasip2, validate, package target/rustic/{{id}}.rplugin
+rustic test           # run the tests: the real .wasm in an in-memory server
+rustic run            # try it: a dev server, or a REPL (join Steve, chat Steve hi, tick 20...)
+rustic run --watch    # rebuild and hot-reload on save
+rustic check          # manifest, API version, capabilities, imports
+rustic package        # release build, ready to upload
+```
+
+## Install
+
+Copy `target/rustic/{{id}}.rplugin` into the server's `plugins/` folder and restart (or run
+`/rustic reload {{id}}` when updating). The default `config.toml` is copied to
+`plugins/{{id}}/config.toml` on first start.
+
+## Layout
+
+| Path | What |
+|---|---|
+| `rustic.plugin.toml` | manifest: id, version, API, capabilities |
+| `config.toml` | default configuration (admins edit their copy) |
+| `src/lib.rs` | the plugin |
+| `tests/` | integration tests with `rusticmc-test` |

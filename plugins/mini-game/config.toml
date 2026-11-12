@@ -1,0 +1,35 @@
+config_version = 1
+
+# Language of the messages: "auto" follows each player's client language (French for fr_*,
+# English otherwise), or force "en" / "fr". The sidebar is shared by everyone: it uses "en"
+# unless a language is forced here.
+language = "auto"
+
+# Players needed before the lobby countdown starts, and the most an arena takes.
+min_players = 2
+max_players = 8
+# Lobby countdown, round length and the pause before everyone goes back to the lobby (seconds).
+countdown_seconds = 15
+round_seconds = 180
+end_seconds = 5
+# Floor / zone radius of a new arena (/mg create, /mg setarea without a radius).
+default_radius = 8
+
+[spleef]
+# The floor rebuilt before each round (and after it); only this block can be broken.
+floor_block = "minecraft:snow_block"
+# Given to every player for the round, taken back afterwards.
+tool = "minecraft:diamond_shovel"
+
+[koth]
+# Points (seconds standing alone in the zone) needed to win before the time is up.
+points_to_win = 60
+# Particles drawn along the zone border every half second (minecraft:dust uses the colour of
+# the zone's state: gold held, red contested, white free).
+particle = "minecraft:dust"
+
+# Rewards in minor units of the economy service (e.g. cents), paid only when an economy plugin
+# is installed. 0 disables a reward.
+[rewards]
+win = 500
+play = 50

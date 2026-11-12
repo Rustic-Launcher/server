@@ -1,0 +1,229 @@
+package rustic:api@0.1.0;
+
+interface server {
+    use types.{text, uuid};
+
+    record plugin-meta {
+        id: string,
+        name: string,
+        version: string,
+        enabled: bool,
+    }
+
+    record tick-stats {
+        /// Mean milliseconds per tick over the last 100 ticks.
+        mspt: f64,
+        /// Ticks per second over the last minute (max 20).
+        tps: f64,
+    }
+
+    /// Message every online player and the console.
+    broadcast: func(message: text);
+    /// Run a command as the console (permission level 4). Returns whether it ran.
+    /// Main instance only.
+    dispatch-command: func(command: string) -> bool;
+    get-tick-stats: func() -> tick-stats;
+    max-players: func() -> u32;
+    motd: func() -> text;
+    /// "Rustic <version> on Horizon <commit> (Minecraft 26.3)".
+    version: func() -> string;
+    plugins: func() -> list<plugin-meta>;
+    /// This plugin's own metadata.
+    self-meta: func() -> plugin-meta;
+    /// Players that ever joined (from the user cache): name to UUID.
+    offline-player: func(name: string) -> option<uuid>;
+    /// The server operators' UUIDs.
+    operators: func() -> list<uuid>;
+}
+
+interface players {
+    use types.{uuid, text, location, game-mode, host-error};
+
+    online: func() -> list<uuid>;
+    name: func(player: uuid) -> option<string>;
+    by-name: func(name: string) -> option<uuid>;
+    is-online: func(player: uuid) -> bool;
+    get-location: func(player: uuid) -> result<location, host-error>;
+    /// The client's IP address as a string.
+    address: func(player: uuid) -> result<string, host-error>;
+    /// Round-trip latency in milliseconds.
+    ping: func(player: uuid) -> result<u32, host-error>;
+    locale: func(player: uuid) -> result<string, host-error>;
+
+    send-message: func(player: uuid, message: text) -> result<_, host-error>;
+    send-action-bar: func(player: uuid, message: text) -> result<_, host-error>;
+    /// Ticks: fade-in, stay, fade-out.
+    send-title: func(player: uuid, title: text, subtitle: text, fade-in: u32, stay: u32, fade-out: u32) -> result<_, host-error>;
+    /// A sound event id ("minecraft:entity.experience_orb.pickup") at the player.
+    play-sound: func(player: uuid, sound: string, volume: f32, pitch: f32) -> result<_, host-error>;
+
+    /// Main instance only.
+    teleport: func(player: uuid, to: location) -> result<_, host-error>;
+    get-game-mode: func(player: uuid) -> result<game-mode, host-error>;
+    set-game-mode: func(player: uuid, mode: game-mode) -> result<_, host-error>;
+    health: func(player: uuid) -> result<f32, host-error>;
+    set-health: func(player: uuid, health: f32) -> result<_, host-error>;
+    max-health: func(player: uuid) -> result<f32, host-error>;
+    food-level: func(player: uuid) -> result<u32, host-error>;
+    set-food-level: func(player: uuid, food: u32) -> result<_, host-error>;
+    saturation: func(player: uuid) -> result<f32, host-error>;
+    set-saturation: func(player: uuid, saturation: f32) -> result<_, host-error>;
+    experience-level: func(player: uuid) -> result<u32, host-error>;
+    set-experience-level: func(player: uuid, level: u32) -> result<_, host-error>;
+    set-flying: func(player: uuid, allow: bool, flying: bool) -> result<_, host-error>;
+    kick: func(player: uuid, reason: text) -> result<_, host-error>;
+    is-op: func(player: uuid) -> bool;
+    set-op: func(player: uuid, op: bool) -> result<_, host-error>;
+
+    /// Persistent per-player data in this plugin's namespace, saved with the player.
+    get-data: func(player: uuid, key: string) -> option<list<u8>>;
+    set-data: func(player: uuid, key: string, value: list<u8>);
+    delete-data: func(player: uuid, key: string) -> bool;
+}
+
+interface inventories {
+    use types.{uuid, item-stack, host-error};
+
+    /// Player inventory slots: 0-8 hotbar, 9-35 main, 36-39 armor (feet..head), 40 off hand.
+    get-slot: func(player: uuid, slot: u32) -> result<item-stack, host-error>;
+    set-slot: func(player: uuid, slot: u32, item: item-stack) -> result<_, host-error>;
+    /// All 41 slots.
+    contents: func(player: uuid) -> result<list<item-stack>, host-error>;
+    /// Adds where it fits; returns what did not fit.
+    give: func(player: uuid, item: item-stack) -> result<item-stack, host-error>;
+    /// Removes up to `count` of `id`; returns how many were removed.
+    take: func(player: uuid, id: string, count: u32) -> result<u32, host-error>;
+    clear: func(player: uuid) -> result<_, host-error>;
+    held-slot: func(player: uuid) -> result<u32, host-error>;
+    /// Close whatever container or menu the player has open.
+    close-container: func(player: uuid) -> result<_, host-error>;
+}
+
+/// Chest-like menus owned by a plugin: every click is an `inventory-click` with `menu` set,
+/// cancelled by default.
+interface menus {
+    use types.{uuid, text, item-stack, host-error};
+
+    type menu-id = u32;
+
+    record menu-spec {
+        /// 1 to 6 rows of 9.
+        rows: u8,
+        title: text,
+        items: list<tuple<u32, item-stack>>,
+    }
+
+    open: func(player: uuid, spec: menu-spec) -> result<menu-id, host-error>;
+    set-item: func(menu: menu-id, slot: u32, item: item-stack) -> result<_, host-error>;
+    set-title: func(menu: menu-id, title: text) -> result<_, host-error>;
+    close: func(menu: menu-id);
+    /// The menu `player` has open, if one of this plugin's.
+    open-menu: func(player: uuid) -> option<menu-id>;
+}
+
+interface worlds {
+    use types.{block-pos, block-state, vec3, location, weather, entity-ref, host-error, uuid};
+
+    /// Loaded worlds (dimension ids).
+    all: func() -> list<string>;
+    /// Main instance only for every call below except `all`.
+    get-block: func(%world: string, pos: block-pos) -> result<block-state, host-error>;
+    /// `physics` false skips neighbour updates (like Bukkit's applyPhysics=false).
+    set-block: func(%world: string, pos: block-pos, state: block-state, physics: bool) -> result<bool, host-error>;
+    /// Many writes in one call, applied in order; returns how many blocks changed.
+    set-blocks: func(%world: string, blocks: list<tuple<block-pos, block-state>>, physics: bool) -> result<u32, host-error>;
+    /// Fill a box (inclusive), at most 32768 blocks.
+    fill: func(%world: string, %from: block-pos, to: block-pos, state: block-state) -> result<u32, host-error>;
+    highest-block-y: func(%world: string, x: s32, z: s32) -> result<s32, host-error>;
+    is-chunk-loaded: func(%world: string, cx: s32, cz: s32) -> bool;
+    /// Keep a chunk loaded while this plugin is enabled (or until released).
+    keep-chunk-loaded: func(%world: string, cx: s32, cz: s32, keep: bool) -> result<_, host-error>;
+
+    time: func(%world: string) -> result<u64, host-error>;
+    set-time: func(%world: string, time: u64) -> result<_, host-error>;
+    get-weather: func(%world: string) -> result<weather, host-error>;
+    set-weather: func(%world: string, weather: weather, duration-ticks: u32) -> result<_, host-error>;
+    spawn: func(%world: string) -> result<location, host-error>;
+    set-spawn: func(%world: string, at: location) -> result<_, host-error>;
+
+    /// `nbt` is optional SNBT for the new entity.
+    spawn-entity: func(%world: string, kind: string, at: vec3, nbt: string) -> result<entity-ref, host-error>;
+    remove-entity: func(%world: string, entity: u32) -> result<_, host-error>;
+    entities-near: func(%world: string, at: vec3, radius: f64) -> result<list<entity-ref>, host-error>;
+    entity-location: func(%world: string, entity: u32) -> result<location, host-error>;
+    /// Particle type id and its options as SNBT (empty for simple particles).
+    spawn-particle: func(%world: string, particle: string, options: string, at: vec3, count: u32, offset: vec3, speed: f64) -> result<_, host-error>;
+    play-sound: func(%world: string, sound: string, at: vec3, volume: f32, pitch: f32) -> result<_, host-error>;
+    /// Players in a world.
+    players: func(%world: string) -> list<uuid>;
+}
+
+interface scoreboards {
+    use types.{text, uuid, host-error};
+
+    enum display-slot {
+        sidebar,
+        player-list,
+        below-name,
+    }
+
+    enum team-color {
+        black, dark-blue, dark-green, dark-aqua, dark-red, dark-purple, gold, gray,
+        dark-gray, blue, green, aqua, red, light-purple, yellow, white, reset,
+    }
+
+    /// The server's main scoreboard (shared, as vanilla's). Objective names are prefixed with
+    /// nothing: pick unique names (the SDK prefixes with the plugin id).
+    create-objective: func(name: string, display: text, criteria: string) -> result<_, host-error>;
+    remove-objective: func(name: string) -> result<_, host-error>;
+    set-display: func(slot: display-slot, objective: option<string>) -> result<_, host-error>;
+    set-objective-display: func(name: string, display: text) -> result<_, host-error>;
+    set-score: func(objective: string, entry: string, score: s32) -> result<_, host-error>;
+    reset-score: func(objective: string, entry: string) -> result<_, host-error>;
+    get-score: func(objective: string, entry: string) -> option<s32>;
+
+    create-team: func(name: string) -> result<_, host-error>;
+    remove-team: func(name: string) -> result<_, host-error>;
+    set-team-prefix: func(name: string, prefix: text) -> result<_, host-error>;
+    set-team-suffix: func(name: string, suffix: text) -> result<_, host-error>;
+    set-team-color: func(name: string, color: team-color) -> result<_, host-error>;
+    team-add: func(name: string, entry: string) -> result<_, host-error>;
+    team-remove: func(name: string, entry: string) -> result<_, host-error>;
+}
+
+interface bossbars {
+    use types.{text, uuid, host-error};
+
+    type bar-id = u32;
+
+    enum bar-color { pink, blue, red, green, yellow, purple, white }
+    enum bar-style { progress, notched-6, notched-10, notched-12, notched-20 }
+
+    create: func(title: text, color: bar-color, style: bar-style, progress: f32) -> bar-id;
+    set-title: func(bar: bar-id, title: text);
+    set-progress: func(bar: bar-id, progress: f32);
+    set-color: func(bar: bar-id, color: bar-color);
+    show: func(bar: bar-id, player: uuid) -> result<_, host-error>;
+    hide: func(bar: bar-id, player: uuid);
+    remove: func(bar: bar-id);
+}
+
+interface tablist {
+    use types.{text, uuid, host-error};
+
+    set-header-footer: func(player: uuid, header: text, footer: text) -> result<_, host-error>;
+    /// The name shown for `player` in everyone's list; none restores it.
+    set-display-name: func(player: uuid, name: option<text>) -> result<_, host-error>;
+}
+
+/// Plugin messaging (custom payload packets) and proxy information.
+interface messaging {
+    use types.{uuid, host-error};
+
+    /// Receive `plugin-message` events for this channel ("namespace:path").
+    register-incoming: func(channel: string) -> result<_, string>;
+    unregister-incoming: func(channel: string);
+    send: func(player: uuid, channel: string, data: list<u8>) -> result<_, host-error>;
+    /// Whether the server sits behind a proxy with modern forwarding (Velocity).
+    behind-proxy: func() -> bool;
+}

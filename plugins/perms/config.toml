@@ -1,0 +1,18 @@
+# Perms configuration. Copied to the data folder on first start; your edits are kept on update.
+config_version = 1
+
+# Message language: "en" (English) or "fr" (French).
+lang = "en"
+
+# Players without any other group are in this group. Created automatically when missing,
+# and cannot be deleted.
+default_group = "default"
+
+# How often temporary groups and permissions are checked for expiry, in ticks (20 = 1 second).
+expiry_check_ticks = 20
+
+# Tell online players when one of their temporary groups or permissions expires.
+notify_expiry = true
+
+# File written by /perms export and read by /perms import, inside the plugin's data folder.
+export_file = "perms.toml"

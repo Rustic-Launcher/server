@@ -1,0 +1,36 @@
+[package]
+name = "rusticmc-core"
+description = "Engine-agnostic Rustic plugin runtime: plugin format, lifecycle, events, scheduler, commands, permissions, services, storage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+## `From` conversions between `model::Uuid` and the `uuid` crate's `Uuid`.
+uuid = ["dep:uuid"]
+
+[dependencies]
+rusticmc-permissions = { path = "../rusticmc-permissions" }
+rusticmc-timings = { path = "../rusticmc-timings" }
+serde = { version = "1.0.229", features = ["derive", "rc"] }
+serde_json = "1.0.154"
+toml = "1.2.1"
+semver = { version = "1.0.28", features = ["serde"] }
+thiserror = "2.0.21"
+log = "0.4.35"
+zip = { version = "9.5.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+scoped-tls-hkt = "0.1.5"
+uuid = { version = "1.29.2", optional = true, default-features = false }
+
+[dev-dependencies]
+criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
+tempfile = "3.27.0"
+
+[[bench]]
+name = "bus"
+harness = false
+
+[lints]
+workspace = true

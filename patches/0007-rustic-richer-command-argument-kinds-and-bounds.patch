@@ -1,0 +1,153 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: BouBou <69978359+BouBouw@users.noreply.github.com>
+Date: Wed, 11 Nov 2026 03:27:07 +0100
+Subject: [PATCH] rustic: richer command argument kinds and bounds
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/crates/horizon-client/src/game/native_server.rs b/crates/horizon-client/src/game/native_server.rs
+index 1da6a88fd..abe9f7050 100644
+--- a/crates/horizon-client/src/game/native_server.rs
++++ b/crates/horizon-client/src/game/native_server.rs
+@@ -35,10 +35,35 @@ pub(crate) struct NativeSidebar {
+ /// server's scoreboard never holds it.
+ const SIDEBAR_OBJECTIVE: &str = "horizon:native_sidebar";
+ 
+-/// The brigadier parser of an argument kind, and its properties.
++/// The brigadier parser of an argument kind, and its properties. `integer`
++/// and `number` take bounds the client checks as it colours the line:
++/// `integer(1,64)`, `number(0,)` (no maximum), `integer(,10)`.
+ fn parser(kind: &str) -> Option<(&'static str, Value)> {
++    if let Some((base, bounds)) = kind.strip_suffix(')').and_then(|k| k.split_once('(')) {
++        let parser = match base {
++            "integer" => "brigadier:integer",
++            "number" => "brigadier:double",
++            _ => return None,
++        };
++        let (min, max) = bounds.split_once(',')?;
++        let mut properties = serde_json::Map::new();
++        for (key, bound) in [("min", min.trim()), ("max", max.trim())] {
++            if bound.is_empty() {
++                continue;
++            }
++            let value: Value = if base == "integer" {
++                bound.parse::<i32>().ok()?.into()
++            } else {
++                bound.parse::<f64>().ok().filter(|v| v.is_finite())?.into()
++            };
++            properties.insert(key.to_owned(), value);
++        }
++        return Some((parser, Value::Object(properties)));
++    }
+     Some(match kind {
+         "word" | "word?" | "player_name" => ("brigadier:string", json!({"type": "word"})),
++        // One word, or a quoted phrase ("New York").
++        "string" | "string?" => ("brigadier:string", json!({"type": "phrase"})),
+         "text" | "text?" => ("brigadier:string", json!({"type": "greedy"})),
+         "integer" => ("brigadier:integer", Value::Null),
+         "number" => ("brigadier:double", Value::Null),
+@@ -47,8 +72,27 @@ fn parser(kind: &str) -> Option<(&'static str, Value)> {
+             "minecraft:entity",
+             json!({"amount": "single", "type": "players"}),
+         ),
++        // A selector of any number of players (`@a`, `@a[distance=..5]`) or a name.
++        "players" => (
++            "minecraft:entity",
++            json!({"amount": "multiple", "type": "players"}),
++        ),
++        "entity" => (
++            "minecraft:entity",
++            json!({"amount": "single", "type": "entities"}),
++        ),
++        "entities" => (
++            "minecraft:entity",
++            json!({"amount": "multiple", "type": "entities"}),
++        ),
+         "item" => ("minecraft:item_stack", Value::Null),
+         "block_pos" => ("minecraft:block_pos", Value::Null),
++        // Coordinates as `/tp` takes them: `~ ~1 ~`, `^ ^ ^2`, `1.5 64 -3`.
++        "vec3" => ("minecraft:vec3", Value::Null),
++        "dimension" => ("minecraft:dimension", Value::Null),
++        "uuid" => ("minecraft:uuid", Value::Null),
++        // A duration with its unit as `/time add` takes it: `20`, `5s`, `2d`.
++        "duration" => ("minecraft:time", json!({"min": 0})),
+         _ => return None,
+     })
+ }
+@@ -59,7 +103,7 @@ fn parser(kind: &str) -> Option<(&'static str, Value)> {
+ /// too. `lan::commands` sends any of them as `minecraft:ask_server`.
+ fn asks_server(kind: &str) -> Option<&'static str> {
+     match kind {
+-        "word?" | "text?" => Some("minecraft:ask_server"),
++        "word?" | "string?" | "text?" => Some("minecraft:ask_server"),
+         "player_name" => Some(PLAYER_NAMES),
+         _ => None,
+     }
+@@ -1804,6 +1848,30 @@ mod tests {
+         })
+     }
+ 
++    /// The richer kinds reach the client's tree with vanilla's parsers, bounds included; a
++    /// malformed bound refuses the usage like an unknown kind.
++    #[test]
++    fn richer_argument_kinds_and_bounds_map_to_vanilla_parsers() {
++        let nodes = usage_nodes("warp <who:players> <to:vec3> [world:dimension]").unwrap();
++        assert_eq!(nodes[1].1["parser"], "minecraft:entity");
++        assert_eq!(nodes[1].1["properties"]["amount"], "multiple");
++        assert_eq!(nodes[2].1["parser"], "minecraft:vec3");
++        assert_eq!(nodes[3].1["parser"], "minecraft:dimension");
++        let nodes =
++            usage_nodes("pay <amount:integer(1,64)> <tip:number(0,)> <note:string>").unwrap();
++        assert_eq!(nodes[1].1["parser"], "brigadier:integer");
++        assert_eq!(nodes[1].1["properties"], json!({"min": 1, "max": 64}));
++        assert_eq!(nodes[2].1["properties"], json!({"min": 0.0}));
++        assert_eq!(nodes[3].1["properties"]["type"], "phrase");
++        let nodes = usage_nodes("wait <for:duration> <id:uuid> <mob:entity>").unwrap();
++        assert_eq!(nodes[1].1["parser"], "minecraft:time");
++        assert_eq!(nodes[2].1["parser"], "minecraft:uuid");
++        assert_eq!(nodes[3].1["properties"]["amount"], "single");
++        for bad in ["a <n:integer(x,3)>", "a <n:integer(3)>", "a <n:word(1,2)>"] {
++            assert!(usage_nodes(bad).is_err(), "{bad}");
++        }
++    }
++
+     #[test]
+     fn items_are_taken_from_the_hand_first_and_only_plain() {
+         let mut inv = vec![None; 36];
+diff --git a/crates/horizon-client/src/mod_api.rs b/crates/horizon-client/src/mod_api.rs
+index 7c6008f92..1b21376da 100644
+--- a/crates/horizon-client/src/mod_api.rs
++++ b/crates/horizon-client/src/mod_api.rs
+@@ -756,9 +756,12 @@ pub struct NativeClientInfo {
+ /// `<name:kind>`, optional ones last in brackets `[name:kind]`:
+ /// `pay <player:player> <amount:integer>`, `balance [player:player]`,
+ /// `eco give <player:player> <amount:integer>`. Kinds: `word`, `text` (the
+-/// rest of the line, last), `integer`, `number`, `boolean`, `player`,
+-/// `item`, `block_pos`; and the kinds whose completions the player's client
+-/// asks the server for (`native_tab_complete_v2`): `word?`, `text?` and
++/// rest of the line, last), `string` (a word or a quoted phrase), `integer`,
++/// `number` (both may carry bounds the client checks: `integer(1,64)`,
++/// `number(0,)`), `boolean`, `player`, `players` (a selector of any number of
++/// players), `entity`, `entities`, `item`, `block_pos`, `vec3`, `dimension`,
++/// `uuid`, `duration` (`5s`, `2d`); and the kinds whose completions the player's client
++/// asks the server for (`native_tab_complete_v2`): `word?`, `string?`, `text?` and
+ /// `player_name` (a word, any name accepted, that the server completes with
+ /// the online players' names). Usages of one command share their words; the
+ /// server merges them into one tree.
+diff --git a/docs/native-mods.md b/docs/native-mods.md
+index 4b86b666e..3fb0a032d 100644
+--- a/docs/native-mods.md
++++ b/docs/native-mods.md
+@@ -2232,8 +2232,10 @@ For mods that run where the world is simulated: a dedicated server, a LAN host,
+ - **`native_register_commands(commands)`**: push a `NativeCommand` per usage, asked once when a world opens to
+   players. A usage is words, then arguments `<name:kind>`, optional ones last in brackets:
+   `NativeCommand::new("pay <player:player> <amount:integer>")`, `NativeCommand::op("eco set <player:player>
+-  <amount:integer>", 3)` for operators of level 3. Kinds: `word`, `text` (the rest of the line, last), `integer`,
+-  `number`, `boolean`, `player`, `item`, `block_pos`. The usages of one command merge into one tree, which every
++  <amount:integer>", 3)` for operators of level 3. Kinds: `word`, `text` (the rest of the line, last), `string` (a
++  word or a quoted phrase), `integer`, `number` (with optional bounds the client checks: `integer(1,64)`,
++  `number(0,)`), `boolean`, `player`, `players` (a selector of any number of players), `entity`, `entities`, `item`,
++  `block_pos`, `vec3`, `dimension`, `uuid`, `duration`. The mod still gets the raw line. The usages of one command merge into one tree, which every
+   player receives after vanilla's (filtered by their level, as vanilla's is), so their chat box completes and colours
+   it. A name vanilla has, or a usage that doesn't parse, is left out with a warning in the log.
+ - **`native_refresh_commands()`** (`host.refresh_commands()` for trait mods, API @API:refresh_commands@): a helper for

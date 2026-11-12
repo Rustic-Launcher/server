@@ -1,0 +1,22 @@
+[package]
+name = "essentials-lite"
+description = "Spawn, homes, warps, teleport requests, /back, private messages and broadcasts, with warmups and cooldowns"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rustic.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+# Validates rustic.plugin.toml with the server's own (strict) manifest parser.
+rusticmc-core = { path = "../../crates/rusticmc-core" }
+serde_json = "1"
+# The in-memory server running the real essentials_lite.wasm (tests/plugin.rs).
+rusticmc-test = { path = "../../crates/rusticmc-test", features = ["wasm"] }

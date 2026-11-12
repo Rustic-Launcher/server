@@ -1,0 +1,39 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/rusticmc-api-wit",
+    "crates/rusticmc-core",
+    "crates/rusticmc-permissions",
+    "crates/rusticmc-timings",
+    "crates/rusticmc-host",
+    "crates/rusticmc-api",
+    "crates/rusticmc-api-macros",
+    "crates/rusticmc-test",
+    "crates/rusticmc-cli",
+    "bridge/rusticmc-bridge-analyze",
+    "bridge/rusticmc-bridge",
+]
+# rusticmc-server links horizon-client and must use Horizon's [patch] and Cargo.lock, so it is
+# its own workspace (scripts/sync_horizon.py keeps it in step). Plugins build for wasm32-wasip2
+# in their own workspace (plugins/Cargo.toml).
+exclude = ["horizon", "crates/rusticmc-server", "plugins", "bridge/java"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.95"
+repository = "https://github.com/Rustic-Launcher/server"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[profile.bench]
+debug = "line-tables-only"

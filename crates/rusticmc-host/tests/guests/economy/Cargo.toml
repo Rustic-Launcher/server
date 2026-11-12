@@ -1,0 +1,13 @@
+[package]
+name = "guest-economy"
+description = "rusticmc-host test guest: provides rustic:services/economy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+rustic = { package = "rusticmc-api", path = "../../../../rusticmc-api", features = ["provide-economy"] }

@@ -1,0 +1,25 @@
+[package]
+name = "rusticmc-bridge-analyze"
+description = "Static analyzer for Bukkit/Spigot/Paper plugin jars: API usage and Rustic coverage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "rusticmc_bridge_analyze"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rustic-bridge-analyze"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+yaml_serde = "0.10"
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[lints]
+workspace = true

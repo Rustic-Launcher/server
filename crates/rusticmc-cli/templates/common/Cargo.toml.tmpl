@@ -1,0 +1,28 @@
+[package]
+name = "{{crate_name}}"
+version = "0.1.0"
+edition = "2024"
+description = "{{description}}"
+publish = false
+
+# A Rustic plugin is a WebAssembly component: `rustic build` compiles this crate for
+# wasm32-wasip2 and packages it with rustic.plugin.toml into target/rustic/{{id}}.rplugin.
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+{{sdk_dep}}
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+# The test harness: runs this plugin's real .wasm in an in-memory server (`rustic test`).
+{{test_dep}}
+{{workspace}}
+# Plugins ship as small components: optimise for size, strip symbols; a panic traps and the
+# server disables the plugin (it never crashes the server).
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

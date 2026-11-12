@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-3.0-only
+name: BenchWorkload
+version: 0.1.0
+main: rustic.bench.workload.WorkloadPlugin
+api-version: '1.21'
+description: Rustic benchmark workload (move, chat, a command, a 1-tick task)
+author: Rustic
+commands:
+  workload:
+    description: Show the workload counters
+    usage: /<command>

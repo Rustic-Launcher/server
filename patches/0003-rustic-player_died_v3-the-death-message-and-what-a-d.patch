@@ -1,0 +1,268 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: BouBou <69978359+BouBouw@users.noreply.github.com>
+Date: Wed, 11 Nov 2026 03:27:05 +0100
+Subject: [PATCH] rustic: player_died_v3, the death message and what a death
+ keeps
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/crates/horizon-client/src/game/item_entities.rs b/crates/horizon-client/src/game/item_entities.rs
+index 5eea169fa..e720b2ba5 100644
+--- a/crates/horizon-client/src/game/item_entities.rs
++++ b/crates/horizon-client/src/game/item_entities.rs
+@@ -596,16 +596,13 @@ impl Game<'_> {
+         }
+     }
+ 
+-    /// `Player.dropEquipment` for the player who died: unless keep_inventory
+-    /// is on, `destroyVanishingCursedItems`, then `Inventory.dropAll` from
++    /// `Player.dropEquipment` for the player who died, whose inventory is not
++    /// kept (the caller checks keep_inventory): `destroyVanishingCursedItems`, then `Inventory.dropAll` from
+     /// `at` (the eyes less 0.3): slots 0..36, armor feet to head (36..39),
+     /// the off hand (40), each thrown in a random direction. The mods
+     /// (`native_loot_drops`, the dying player `who`: uuid and entity id)
+     /// may add to, change or take out the stacks before they are thrown.
+     pub(super) fn drop_inventory(&mut self, at: [f64; 3], who: (u128, i32)) {
+-        if self.ui.rules.bool("keep_inventory") {
+-            return;
+-        }
+         let mut stacks = death_drops(&mut self.inventory, &mut self.offhand, &mut self.armor);
+         self.apply_equipment();
+         let context = horizon_client::mod_api::NativeLootDrops {
+diff --git a/crates/horizon-client/src/game/lan_actions.rs b/crates/horizon-client/src/game/lan_actions.rs
+index f9695188c..b09da35dc 100644
+--- a/crates/horizon-client/src/game/lan_actions.rs
++++ b/crates/horizon-client/src/game/lan_actions.rs
+@@ -4127,7 +4127,12 @@ impl Game<'_> {
+             progress: g.xp_progress,
+             total: g.xp_total,
+         };
+-        xp.respawn(self.ui.rules.bool("keep_inventory") || g.game_mode == SPECTATOR);
++        let keep = g.keep_level.take();
++        xp.respawn(
++            keep.unwrap_or_else(|| {
++                self.ui.rules.bool("keep_inventory") || g.game_mode == SPECTATOR
++            }),
++        );
+         (g.xp_level, g.xp_progress, g.xp_total) = (xp.level, xp.progress, xp.total);
+         // PlayerEvent.Clone, at the end of `restoreFrom`: the data is copied,
+         // the new player not yet placed.
+@@ -4510,12 +4515,12 @@ impl Game<'_> {
+             g.dead = true;
+             g.last_death = Some((g.dimension.clone(), g.position.map(|v| v.floor() as i32)));
+             let (id, at) = (g.entity_id, g.position);
+-            let reward = Experience {
++            let experience = Experience {
+                 level: g.xp_level,
+                 progress: g.xp_progress,
+                 total: g.xp_total,
+-            }
+-            .death_reward(self.ui.rules.bool("keep_inventory") || g.game_mode == SPECTATOR);
++            };
++            let spectator = g.game_mode == SPECTATOR;
+             let (name, uuid) = (g.name.clone(), g.uuid);
+             // ServerPlayer.die: dropAllDeathLoot unless a spectator, from the eyes less 0.3.
+             let drops = (g.game_mode != SPECTATOR)
+@@ -4554,7 +4559,24 @@ impl Game<'_> {
+             };
+             // The rendered message, whether or not death messages are shown.
+             self.native_player_died_v2(uuid, &name, &text);
+-            let message = if self.ui.rules.bool("show_death_messages") {
++            // What the death says and keeps, as the mods leave it (Bukkit's PlayerDeathEvent).
++            let rule_keeps = self.ui.rules.bool("keep_inventory");
++            let mut shown = self.ui.rules.bool("show_death_messages").then_some(text);
++            let (mut keep_inventory, mut keep_level) = (rule_keeps, rule_keeps || spectator);
++            if !horizon_client::mod_api::mods().is_empty() {
++                self.native_player_died_v3(
++                    uuid,
++                    &name,
++                    &mut shown,
++                    &mut keep_inventory,
++                    &mut keep_level,
++                );
++                host.hub.guests[gi].keep_level =
++                    (keep_level != (rule_keeps || spectator)).then_some(keep_level);
++            }
++            let reward = experience.death_reward(keep_level);
++            let drops = drops.filter(|_| !keep_inventory);
++            let message = if let Some(text) = shown {
+                 let message = horizon_client::lan::data::component_nbt(&text.component());
+                 let board = &self.score.board;
+                 host.hub.system_message_to(message.clone(), |other| {
+diff --git a/crates/horizon-client/src/game/native_hooks.rs b/crates/horizon-client/src/game/native_hooks.rs
+index cdf89b035..a5a51fc47 100644
+--- a/crates/horizon-client/src/game/native_hooks.rs
++++ b/crates/horizon-client/src/game/native_hooks.rs
+@@ -8961,6 +8961,37 @@ impl Game<'_> {
+     pub(super) fn native_player_died_v2(&mut self, player: u128, name: &str, message: &Text) {
+         mod_api::dispatch_player_died_v2(self, mod_api::mods(), player, name, message);
+     }
++    /// `player` (`name`) died: what the death says and keeps, decided by the
++    /// mods (Bukkit's `PlayerDeathEvent`: `deathMessage`, `keepInventory`,
++    /// `keepLevel`). Heard right after `native_player_died_v2`, before
++    /// anything drops. `message` is the line everyone the team lets see it
++    /// gets and the death screen shows, none when death messages are off: set
++    /// it to `None` to send none (the death screen is then empty), or replace
++    /// it. `keep_inventory` starts as the `keep_inventory` rule: true and
++    /// nothing drops, the player keeps every stack; false and they drop as
++    /// with the rule off. `keep_level` starts as the rule (or true for a
++    /// spectator): true and no experience drops and the respawn keeps it;
++    /// false and it drops and is lost. Mods are asked in order and share the
++    /// values. The dying player is not swapped in. Server-side. Pending API
++    /// @API:player_died_v3@.
++    pub(super) fn native_player_died_v3(
++        &mut self,
++        player: u128,
++        name: &str,
++        message: &mut Option<Text>,
++        keep_inventory: &mut bool,
++        keep_level: &mut bool,
++    ) {
++        mod_api::dispatch_player_died_v3(
++            self,
++            mod_api::mods(),
++            player,
++            name,
++            message,
++            keep_inventory,
++            keep_level,
++        );
++    }
+     /// A new mob of `kind` joined `dimension` at `pos`: `natural` when the
+     /// world's spawning made it, false when something else did (a breed, a
+     /// raid, a spawner, a conversion, `/summon`, and the second mob of a
+diff --git a/crates/horizon-client/src/lan/guest.rs b/crates/horizon-client/src/lan/guest.rs
+index db38e1d47..e50457225 100644
+--- a/crates/horizon-client/src/lan/guest.rs
++++ b/crates/horizon-client/src/lan/guest.rs
+@@ -357,6 +357,9 @@ pub struct Guest {
+     /// their client, zero after a client tick without one.
+     pub known_movement: [f64; 3],
+     pub dead: bool,
++    /// Whether the respawn keeps the experience, when a mod decided it at the death
++    /// (`native_player_died_v3`); none follows the `keep_inventory` rule as vanilla does.
++    pub keep_level: Option<bool>,
+     /// `LivingEntity.deathTime`: ticks since the guest died.
+     pub death_time: u32,
+     /// The join packets were sent (PlayerList.placeNewPlayer ran).
+@@ -582,6 +585,7 @@ impl Guest {
+             moves_from_ground: false,
+             known_movement: [0.0; 3],
+             dead: false,
++            keep_level: None,
+             death_time: 0,
+             placed: false,
+             handover: None,
+diff --git a/crates/horizon-client/tests/mod_api_hooks.rs b/crates/horizon-client/tests/mod_api_hooks.rs
+index 84ad8b174..fb0023b7a 100644
+--- a/crates/horizon-client/tests/mod_api_hooks.rs
++++ b/crates/horizon-client/tests/mod_api_hooks.rs
+@@ -824,3 +824,85 @@ fn a_physical_trigger_hook_cancels_for_the_player_it_names() {
+     assert!(!ask(&mods, 8), "another player still does");
+     assert!(!ask(&[], 7), "without mods nothing is cancelled");
+ }
++
++#[test]
++fn a_status_response_is_edited_in_turn_and_unchanged_fields_stay() {
++    use horizon_client::mod_api::{StatusResponseEvent, Text, dispatch_status_response};
++    struct Motd;
++    impl Hooks for Motd {
++        fn status_response(&self, event: &mut StatusResponseEvent<'_>) {
++            assert_eq!(event.motd, "A server");
++            assert_eq!(event.protocol, 777);
++            *event.description = Some(Text::literal(format!("{} (Rustic)", event.motd)));
++            event.max_players = 100;
++            event.sample.retain(|(_, name)| name != "Hidden");
++        }
++    }
++    struct Seen;
++    impl Hooks for Seen {
++        fn status_response(&self, event: &mut StatusResponseEvent<'_>) {
++            // The first mod's changes are seen.
++            assert_eq!(event.max_players, 100);
++            assert_eq!(event.sample.len(), 1);
++            event.sample.push((3, "Guest".to_owned()));
++        }
++    }
++    let mods: Vec<Box<dyn Hooks>> = vec![Box::new(Motd), Box::new(Seen)];
++    let (mut description, mut max, mut online) = (None, 20, 2);
++    let mut sample = vec![(1, "Steve".to_owned()), (2, "Hidden".to_owned())];
++    dispatch_status_response(
++        &mods,
++        "127.0.0.1:50000".parse().unwrap(),
++        777,
++        "A server",
++        &mut description,
++        &mut max,
++        &mut online,
++        &mut sample,
++    );
++    assert_eq!(
++        description.map(|t| t.plain()).as_deref(),
++        Some("A server (Rustic)")
++    );
++    assert_eq!((max, online), (100, 2));
++    assert_eq!(sample, [(1, "Steve".to_owned()), (3, "Guest".to_owned())]);
++}
++
++#[test]
++fn a_death_hook_decides_the_message_and_what_is_kept() {
++    use horizon_client::mod_api::{PlayerDiedV3Event, Text, dispatch_player_died_v3};
++    struct TestHost;
++    impl Host for TestHost {}
++    struct Arena;
++    impl Hooks for Arena {
++        fn player_died_v3(&self, _host: &mut dyn Host, event: &mut PlayerDiedV3Event<'_>) {
++            assert_eq!(event.name, "Steve");
++            *event.message = None;
++            event.keep_inventory = true;
++        }
++    }
++    struct Later;
++    impl Hooks for Later {
++        fn player_died_v3(&self, _host: &mut dyn Host, event: &mut PlayerDiedV3Event<'_>) {
++            assert!(
++                event.message.is_none() && event.keep_inventory,
++                "sees the first mod's say"
++            );
++            event.keep_level = true;
++        }
++    }
++    let mods: Vec<Box<dyn Hooks>> = vec![Box::new(Arena), Box::new(Later)];
++    let mut message = Some(Text::literal("Steve fell from a high place"));
++    let (mut keep_inventory, mut keep_level) = (false, false);
++    dispatch_player_died_v3(
++        &mut TestHost,
++        &mods,
++        7,
++        "Steve",
++        &mut message,
++        &mut keep_inventory,
++        &mut keep_level,
++    );
++    assert_eq!(message, None);
++    assert!(keep_inventory && keep_level);
++}
+diff --git a/tools/native-hook-fragments/player_died_v3.json b/tools/native-hook-fragments/player_died_v3.json
+new file mode 100644
+index 000000000..7f632e13c
+--- /dev/null
++++ b/tools/native-hook-fragments/player_died_v3.json
+@@ -0,0 +1,17 @@
++{
++  "hooks": [
++    {
++      "name": "player_died_v3",
++      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_died_v3",
++      "neoforge": "none (Bukkit's PlayerDeathEvent: deathMessage, keepInventory, keepLevel)",
++      "side": "server",
++      "cancellable": false,
++      "mod_api": {
++        "contract": "listen"
++      }
++    }
++  ],
++  "rust_summary": "a player's death message, kept inventory and kept experience, decided by the mods (`native_player_died_v3`).",
++  "doc_summary": "`native_player_died_v3(player, name, message, keep_inventory, keep_level)` decides what a player's death says and keeps (Bukkit's `PlayerDeathEvent`): replace `message` or set it to `None` to send none; `keep_inventory` and `keep_level` start as the `keep_inventory` rule says and decide whether the inventory and the experience drop or stay through the respawn. Heard after `native_player_died_v2`, before anything drops. Bundles need \"hooks\": @API:player_died_v3@.",
++  "comments": []
++}

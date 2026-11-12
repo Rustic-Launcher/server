@@ -1,0 +1,394 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: BouBou <69978359+BouBouw@users.noreply.github.com>
+Date: Thu, 12 Nov 2026 21:00:00 +0100
+Subject: [PATCH] rustic: name_picture hook, a picture in the place of the mark
+
+A platform hook (horizon_hooks::Hooks::name_picture) gives one of the crate's
+sprites for a player's name: the player list and the name tag over their head
+draw it whole in the mark's 8x8 box (with the text's shadow in the list) and
+leave the mark out for that player. Rustic ADR 0012, U14.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/horizon-client-render/src/tab_list.rs       | 149 ++++++++++++++++++++-
+ .../examples/probe/tab_list_fixture.rs             |   1 +
+ crates/horizon-client/src/game/names.rs            |  12 +-
+ crates/horizon-client/src/game/player_hooks.rs     |  27 ++++
+ crates/horizon-client/src/game/scoreboard.rs       |   7 +
+ crates/horizon-hooks/src/lib.rs                    |  20 +++
+ 6 files changed, 208 insertions(+), 8 deletions(-)
+
+diff --git a/crates/horizon-client-render/src/tab_list.rs b/crates/horizon-client-render/src/tab_list.rs
+index d77eb6b0c..6d8edd412 100644
+--- a/crates/horizon-client-render/src/tab_list.rs
++++ b/crates/horizon-client-render/src/tab_list.rs
+@@ -347,8 +347,21 @@ pub struct TabInputs<'a> {
+     /// A mark after the player's head, or none: an extension point for what lives above the
+     /// engine (Horizon's mark, `horizon_cosmetics::mark`). Vanilla draws none.
+     pub mark: &'a dyn Fn(u128) -> Option<NameMark>,
++    /// A picture in the mark's place, or none: a crate's sprite id ([`hook_sprite`]), drawn whole
++    /// in the mark's 8x8 box with the text's shadow; a player with one gets no mark.
++    pub picture: &'a dyn Fn(u128) -> Option<u64>,
+ }
+ 
++/// The GUI atlas name of a crate's sprite `id` (`horizon_hooks::players::Sprites`, put where
++/// skins go): `hooks/<id in hex>`.
++pub fn hook_sprite(id: u64) -> String {
++    format!("hooks/{id:x}")
++}
++
++/// The shadow under a picture in the mark's place: the font's, a pixel right and down, white
++/// text's shadow colour (`ARGB.scaleRGB(color, 0.25)`).
++const PICTURE_SHADOW: u32 = 0xFF3F_3F3F;
++
+ /// A mark drawn after a player's head in the tab list: filled rectangles `(x, y, width, height,
+ /// ARGB)` in an 8x8 box. Once any listed player has one, every row gets the column, so the names
+ /// stay aligned.
+@@ -373,7 +386,7 @@ struct LayoutCache {
+     footer: Option<Text>,
+     language: Option<std::sync::Arc<crate::lang::Language>>,
+     dimensions: (i32, bool, u32, u64),
+-    flags: Vec<(bool, Option<NameMark>)>,
++    flags: Vec<(bool, Option<NameMark>, Option<u64>)>,
+     draws: Vec<GuiDraw>,
+     hearts: Vec<(usize, i32, i32, i32, u128, i32)>,
+ }
+@@ -432,7 +445,13 @@ impl TabList {
+         let flags: Vec<_> = i
+             .players
+             .iter()
+-            .map(|p| ((i.upside_down)(p.uuid), (i.mark)(p.uuid)))
++            .map(|p| {
++                (
++                    (i.upside_down)(p.uuid),
++                    (i.mark)(p.uuid),
++                    (i.picture)(p.uuid),
++                )
++            })
+             .collect();
+         let valid = self.cache.as_ref().is_some_and(|c| {
+             c.players == i.players
+@@ -546,9 +565,15 @@ impl TabList {
+         };
+         let sw = i.screen_width;
+         let head = if show_head { 9 } else { 0 };
+-        // A column for the marks once anyone listed has one, so the names stay aligned.
+-        let marked: Vec<Option<NameMark>> = players.iter().map(|p| (i.mark)(p.uuid)).collect();
+-        let mark = if marked.iter().any(Option::is_some) {
++        // A column for the marks once anyone listed has one, so the names stay aligned. A picture
++        // takes the place of a player's mark.
++        let pictured: Vec<Option<u64>> = players.iter().map(|p| (i.picture)(p.uuid)).collect();
++        let marked: Vec<Option<NameMark>> = players
++            .iter()
++            .zip(&pictured)
++            .map(|(p, picture)| picture.is_none().then(|| (i.mark)(p.uuid)).flatten())
++            .collect();
++        let mark = if marked.iter().any(Option::is_some) || pictured.iter().any(Option::is_some) {
+             9
+         } else {
+             0
+@@ -620,7 +645,23 @@ impl TabList {
+                 );
+                 xo += 9;
+             }
+-            if let Some(rects) = marked[n as usize] {
++            if let Some(id) = pictured[n as usize] {
++                let texture: Cow<'static, str> = Cow::Owned(hook_sprite(id));
++                for (d, color) in [(1, PICTURE_SHADOW), (0, WHITE)] {
++                    out.push(GuiDraw::Blit {
++                        texture: texture.clone(),
++                        blend: crate::hud_layout::Blend::Textured,
++                        x: xo + d,
++                        y: yo + d,
++                        w: 8,
++                        h: 8,
++                        uv: [0.0, 0.0],
++                        src: [64, 64],
++                        tex: [64, 64],
++                        color,
++                    });
++                }
++            } else if let Some(rects) = marked[n as usize] {
+                 for &(mx, my, w, h, color) in rects {
+                     let (x, y) = (xo + i32::from(mx), yo + i32::from(my));
+                     let (x1, y1) = (x + i32::from(w), y + i32::from(h));
+@@ -841,6 +882,7 @@ mod tests {
+                 background: 0x20ffffff,
+                 upside_down: &|_| false,
+                 mark: &|_| None,
++                picture: &|_| None,
+             };
+             fresh.cache = None;
+             assert_eq!(
+@@ -851,6 +893,101 @@ mod tests {
+         }
+     }
+ 
++    #[test]
++    fn a_picture_takes_the_place_of_the_mark_and_the_names_stay_aligned() {
++        const MARK: NameMark = &[(1, 1, 6, 6, 0xFF12_3456)];
++        let font = Font::metrics(std::path::Path::new("missing-tab-test-resources"));
++        let board = Scoreboard::default();
++        // 1 has a mark and a picture, 2 a mark only, 3 neither.
++        let players = [
++            TabPlayer::new(1, "pictured"),
++            TabPlayer::new(2, "marked"),
++            TabPlayer::new(3, "plain"),
++        ];
++        let layout = |picture: &dyn Fn(u128) -> Option<u64>| {
++            TabList::default().layout(
++                &TabInputs {
++                    players: &players,
++                    board: &board,
++                    objective: None,
++                    screen_width: 400,
++                    online_mode: true,
++                    gui_ticks: 0,
++                    background: 0x20ff_ffff,
++                    upside_down: &|_| false,
++                    mark: &|id| (id <= 2).then_some(MARK),
++                    picture,
++                },
++                &font,
++            )
++        };
++        let draws = layout(&|id| (id == 1).then_some(0x2a));
++        let text_x = |name: &str| {
++            draws.iter().find_map(|d| match d {
++                GuiDraw::Text { text, x, .. } if text.plain() == name => Some(*x),
++                _ => None,
++            })
++        };
++        let pictures: Vec<_> = draws
++            .iter()
++            .filter_map(|d| match d {
++                GuiDraw::Blit {
++                    texture,
++                    x,
++                    y,
++                    w,
++                    h,
++                    color,
++                    ..
++                } if texture.starts_with("hooks/") => {
++                    Some((texture.to_string(), *x, *y, *w, *h, *color))
++                }
++                _ => None,
++            })
++            .collect();
++        let marks = draws
++            .iter()
++            .filter(|d| {
++                matches!(
++                    d,
++                    GuiDraw::Fill {
++                        color: 0xFF12_3456,
++                        ..
++                    }
++                )
++            })
++            .count();
++        // One mark (player 2's), and player 1's picture with its shadow under it, a pixel off.
++        assert_eq!(marks, 1);
++        assert_eq!(pictures.len(), 2);
++        let (shadow, picture) = (&pictures[0], &pictures[1]);
++        assert_eq!(picture.0, "hooks/2a");
++        assert_eq!((picture.3, picture.4, picture.5), (8, 8, WHITE));
++        assert_eq!((shadow.1, shadow.2), (picture.1 + 1, picture.2 + 1));
++        assert_eq!(shadow.5, PICTURE_SHADOW);
++        // The picture sits where the mark goes: after the head, a pixel before the name.
++        let pictured = text_x("pictured").unwrap();
++        assert_eq!(picture.1, pictured - 9);
++        assert_eq!(text_x("marked"), Some(pictured));
++        assert_eq!(text_x("plain"), Some(pictured));
++        // Without pictures, both marks again; with neither, no column.
++        let draws = layout(&|_| None);
++        let marks = draws
++            .iter()
++            .filter(|d| {
++                matches!(
++                    d,
++                    GuiDraw::Fill {
++                        color: 0xFF12_3456,
++                        ..
++                    }
++                )
++            })
++            .count();
++        assert_eq!(marks, 2);
++        assert_eq!(hook_sprite(u64::MAX), "hooks/ffffffffffffffff");
++    }
++
+     #[test]
+     fn order_ping_and_skins() {
+         let board = Scoreboard::default();
+diff --git a/crates/horizon-client/examples/probe/tab_list_fixture.rs b/crates/horizon-client/examples/probe/tab_list_fixture.rs
+index 42694e272..a3a2d68d4 100644
+--- a/crates/horizon-client/examples/probe/tab_list_fixture.rs
++++ b/crates/horizon-client/examples/probe/tab_list_fixture.rs
+@@ -173,6 +173,7 @@ pub fn main() -> Result<()> {
+                     upside_down: &up,
+                     // Vanilla draws no mark.
+                     mark: &|_| None,
++                    picture: &|_| None,
+                 };
+                 for d in list.layout(&inputs, font) {
+                     draws.push(match d {
+diff --git a/crates/horizon-client/src/game/names.rs b/crates/horizon-client/src/game/names.rs
+index 2b5884550..3f4718ddb 100644
+--- a/crates/horizon-client/src/game/names.rs
++++ b/crates/horizon-client/src/game/names.rs
+@@ -766,7 +766,11 @@ impl Game<'_> {
+                     if background { BACKGROUND } else { 0 },
+                 ),
+             };
+-            if let Some(mark) = marks.mark.filter(|_| n == last) {
++            if let Some(picture) = marks.picture.filter(|_| n == last) {
++                // A hook's picture in the mark's place, 8 text pixels square.
++                let x = -self.gui.atlas.font.width_text(text) / 2.0 - 10.0;
++                batch.rect_uv(x, y0, 8.0, 8.0, picture, text_alpha << 24 | 0xFF_FFFF);
++            } else if let Some(mark) = marks.mark.filter(|_| n == last) {
+                 let x = -self.gui.atlas.font.width_text(text) / 2.0 - 10.0;
+                 // 8 text pixels square, a pixel left of the background.
+                 for &(mx, my, w, h, argb) in mark {
+@@ -934,10 +938,14 @@ struct NameTag {
+ }
+ 
+ /// What a hook draws by a player's name (`horizon_hooks::players::NameDecoration`): a mark
+-/// before it (Horizon's: they play Horizon) and a name tag style.
++/// before it (Horizon's: they play Horizon) or a picture in its place
++/// (`horizon_hooks::Hooks::name_picture`), and a name tag style.
+ #[derive(Clone, Copy, Default)]
+ pub(super) struct Marks {
+     pub mark: Option<horizon_hooks::players::Mark>,
++    /// A hook's picture in the mark's place, in the GUI atlas (`Hooks::name_picture`): no mark
++    /// is drawn with it.
++    pub picture: Option<horizon_client::hud::Rect>,
+     pub style: Option<TagStyle>,
+     /// How high the cosmetics drawn on their body get above the neck, in model pixels: the tag
+     /// goes up over a tall one (`cosmetic_lift`).
+diff --git a/crates/horizon-client/src/game/player_hooks.rs b/crates/horizon-client/src/game/player_hooks.rs
+index bf8e31cdb..13d161f4b 100644
+--- a/crates/horizon-client/src/game/player_hooks.rs
++++ b/crates/horizon-client/src/game/player_hooks.rs
+@@ -583,6 +583,18 @@ impl Game<'_> {
+             (false, Some(kind)) => model(m, kind, self.remote_player_uuid(m.id)),
+             (false, None) => return marks,
+         };
++        // A hook's picture takes the place of the mark (`Hooks::name_picture`).
++        marks.picture = model.uuid.and_then(|uuid| {
++            let [u0, v0, u1, v1] = HookSprites(self).get(engine::name_picture(uuid)?)?;
++            Some(horizon_client::hud::Rect {
++                u0,
++                v0,
++                u1,
++                v1,
++                w: 8,
++                h: 8,
++            })
++        });
+         if let Some(d) = engine::name_decoration(&model, &HookSprites(self)) {
+             marks.mark = d.mark;
+             marks.top = d.top;
+@@ -604,6 +616,21 @@ impl Game<'_> {
+         marks
+     }
+ 
++    /// The sprite a hook draws in the place of the mark before the name of the player `uuid`
++    /// (`horizon_hooks::Hooks::name_picture`), when it is in the atlas (it is then kept this
++    /// frame, as a skin drawn).
++    pub(super) fn hooks_name_picture(&self, uuid: u128) -> Option<u64> {
++        debug_assert!(
++            self.serving.is_none(),
++            "a server thread calls no client hook"
++        );
++        if !engine::any() {
++            return None;
++        }
++        let id = engine::name_picture(uuid)?;
++        HookSprites(self).get(id).map(|_| id)
++    }
++
+     /// How far the third-person camera stands back, as a share of the usual distance: a hook's
+     /// (an emote pulls it back), else 1.
+     pub(super) fn hooks_camera_distance(&self, partial: f32) -> f32 {
+diff --git a/crates/horizon-client/src/game/scoreboard.rs b/crates/horizon-client/src/game/scoreboard.rs
+index 49cca288f..b1423e341 100644
+--- a/crates/horizon-client/src/game/scoreboard.rs
++++ b/crates/horizon-client/src/game/scoreboard.rs
+@@ -897,6 +897,12 @@ impl Game<'_> {
+         for p in players.iter_mut().filter(|p| faces.contains(&p.uuid)) {
+             p.skin = self.face_skin(p.uuid, &p.skin);
+         }
++        // A hook's picture in the mark's place (in the atlas, kept while it is listed).
++        let pictures: Vec<(u128, u64)> = players
++            .iter()
++            .filter_map(|p| Some((p.uuid, self.hooks_name_picture(p.uuid)?)))
++            .collect();
++        let pictured = |id: u128| pictures.iter().find(|(u, _)| *u == id).map(|(_, p)| *p);
+         let board = &self.score.board;
+         let objective = board.display_objective(sb::SLOT_LIST);
+         let up = |id: u128| upside_down.contains(&id);
+@@ -920,6 +926,7 @@ impl Game<'_> {
+             ),
+             upside_down: &up,
+             mark: &marked,
++            picture: &pictured,
+         };
+         let draws = self.tab_list.layout(&inputs, &self.gui.atlas.font);
+         horizon_client::hud_layout::paint(batch, &self.gui.atlas, &draws);
+diff --git a/crates/horizon-hooks/src/lib.rs b/crates/horizon-hooks/src/lib.rs
+index b8a75bb6f..381f7808b 100644
+--- a/crates/horizon-hooks/src/lib.rs
++++ b/crates/horizon-hooks/src/lib.rs
+@@ -69,6 +69,16 @@ pub trait Hooks: Sync {
+         None
+     }
+ 
++    /// A picture that takes the place of the mark before the name of the player `uuid`
++    /// ([`Hooks::player_mark`] in the player list, [`players::NameDecoration::mark`] over their
++    /// head): one of the crate's [`players::Sprites`], by its id, drawn whole in the mark's 8
++    /// text pixels square (with the text's shadow in the player list). While a hook answers for a
++    /// player, no mark is drawn for them. Asked each frame their name shows. The first hook that
++    /// answers is used.
++    fn name_picture(&self, _uuid: u128) -> Option<u64> {
++        None
++    }
++
+     /// How the camera stands in third person, each frame. The first hook that answers is used.
+     fn camera(&self, _own: &players::CameraView) -> Option<players::CameraOverride> {
+         None
+@@ -306,6 +316,11 @@ pub mod engine {
+         all().iter().find_map(|h| h.player_mark(uuid))
+     }
+ 
++    /// [`Hooks::name_picture`].
++    pub fn name_picture(uuid: u128) -> Option<u64> {
++        all().iter().find_map(|h| h.name_picture(uuid))
++    }
++
+     /// [`Hooks::player_layers`].
+     pub fn player_layers(model: &players::PlayerModel, draw: &mut dyn players::PlayerDraw) {
+         for hooks in all() {
+@@ -382,6 +397,9 @@ mod tests {
+         fn player_mark(&self, uuid: u128) -> Option<players::Mark> {
+             (uuid == 9).then_some(MARK)
+         }
++        fn name_picture(&self, uuid: u128) -> Option<u64> {
++            (uuid == 9).then_some(1)
++        }
+         fn camera(&self, own: &players::CameraView) -> Option<players::CameraOverride> {
+             Some(players::CameraOverride::new(own.age / 10.0))
+         }
+@@ -566,6 +584,8 @@ mod tests {
+         assert!(engine::name_decoration(&model(players::Kind::Mannequin), &atlas).is_none());
+         assert_eq!(engine::player_mark(9), Some(MARK));
+         assert_eq!(engine::player_mark(8), None);
++        assert_eq!(engine::name_picture(9), Some(1));
++        assert_eq!(engine::name_picture(8), None);
+         let camera = engine::camera(&players::CameraView::new(5.0));
+         assert_eq!(camera.map(|c| c.distance), Some(0.5));
+         let mut canvas = Canvas::default();
+-- 
+2.47.0
+

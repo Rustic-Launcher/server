@@ -1,0 +1,19 @@
+[package]
+name = "hello"
+description = "Minimal Rustic example plugin: join message, chat filter, /hello, a repeating task, storage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+rustic.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+# Validates rustic.plugin.toml with the server's own (strict) manifest parser.
+rusticmc-core = { path = "../../crates/rusticmc-core" }

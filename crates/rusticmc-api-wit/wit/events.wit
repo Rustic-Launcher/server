@@ -1,0 +1,270 @@
+package rustic:api@0.1.0;
+
+/// The event payloads. Each record is what a handler receives and returns: the host applies
+/// only the fields documented as mutable ("mut") and `cancelled` (on cancellable events),
+/// and ignores whatever a `monitor` handler returns. New events arrive in new minor versions
+/// as new records and new handler functions; existing records never change.
+interface event-types {
+    use types.{uuid, location, text, item-stack, block-state, block-pos, entity-ref, hand, block-face, game-mode};
+
+    /// Before the player is admitted (name, UUID and address known; nothing loaded).
+    /// Cancellable: `cancelled` refuses them with `kick-message`.
+    record player-pre-login {
+        player: uuid,
+        name: string,
+        address: string,
+        cancelled: bool,
+        /// mut
+        kick-message: option<text>,
+    }
+
+    /// The player joined and is in the world.
+    record player-join {
+        player: uuid,
+        name: string,
+        /// mut: the broadcast join line; none hides it.
+        join-message: option<text>,
+    }
+
+    record player-quit {
+        player: uuid,
+        name: string,
+        /// mut: the broadcast quit line; none hides it.
+        quit-message: option<text>,
+    }
+
+    /// A chat message. Cancellable.
+    record player-chat {
+        player: uuid,
+        name: string,
+        /// The message as typed (read-only: it is signed by the client).
+        message: string,
+        cancelled: bool,
+        /// mut: what everyone sees instead of the default `<name> message` line.
+        /// The signed body is kept, only the displayed text changes.
+        display: option<text>,
+    }
+
+    /// A command a player typed, without the leading slash. Cancellable (nothing runs).
+    record player-command {
+        player: uuid,
+        name: string,
+        command: string,
+        cancelled: bool,
+    }
+
+    /// A command typed on the console, without slash. Cancellable.
+    record server-command {
+        command: string,
+        cancelled: bool,
+    }
+
+    /// Movement, asked synchronously for each accepted move packet whose position changed by more
+    /// than the server's move threshold (`rustic.toml` `[events] move_threshold`, see docs/PERFORMANCE.md);
+    /// smaller moves and pure rotations are not reported. Cancellable: the player is put back to
+    /// `from`. Handlers must be cheap: this is the hottest event.
+    record player-move {
+        player: uuid,
+        %from: location,
+        to: location,
+        cancelled: bool,
+    }
+
+    record player-teleport {
+        player: uuid,
+        %from: location,
+        to: location,
+    }
+
+    record player-change-world {
+        player: uuid,
+        from-world: string,
+        to-world: string,
+    }
+
+    /// A player broke a block (survival or creative). Cancellable: the block stays.
+    record block-break {
+        player: uuid,
+        %world: string,
+        pos: block-pos,
+        block: block-state,
+        cancelled: bool,
+        /// mut: false drops nothing.
+        drop-items: bool,
+    }
+
+    /// A player placed a block. Cancellable: the block is not placed, the item not used.
+    record block-place {
+        player: uuid,
+        %world: string,
+        pos: block-pos,
+        block: block-state,
+        hand: hand,
+        cancelled: bool,
+    }
+
+    enum interact-action {
+        left-click-block,
+        right-click-block,
+        left-click-air,
+        right-click-air,
+    }
+
+    /// A player clicked a block or the air. Cancellable: neither the block's nor the item's use happens.
+    record player-interact {
+        player: uuid,
+        action: interact-action,
+        hand: hand,
+        item: item-stack,
+        %world: string,
+        block: option<block-pos>,
+        face: option<block-face>,
+        cancelled: bool,
+    }
+
+    /// A player right-clicked an entity. Cancellable.
+    record player-interact-entity {
+        player: uuid,
+        target: entity-ref,
+        hand: hand,
+        cancelled: bool,
+    }
+
+    /// A living entity (players included) is about to take damage. Cancellable.
+    record entity-damage {
+        target: entity-ref,
+        /// The damage type id ("minecraft:fall", "minecraft:player_attack"...).
+        cause: string,
+        /// The entity that dealt it (the shooter for a projectile), if any.
+        attacker: option<entity-ref>,
+        /// mut
+        amount: f32,
+        cancelled: bool,
+    }
+
+    /// A player died.
+    record player-death {
+        player: uuid,
+        cause: string,
+        /// mut: the broadcast death line; none hides it.
+        death-message: option<text>,
+        /// mut
+        keep-inventory: bool,
+        /// mut
+        keep-level: bool,
+    }
+
+    /// A non-player living entity died.
+    record entity-death {
+        entity: entity-ref,
+        killer: option<uuid>,
+        /// mut: what it drops.
+        drops: list<item-stack>,
+        /// mut
+        dropped-exp: u32,
+    }
+
+    record player-respawn {
+        player: uuid,
+        /// mut
+        location: location,
+    }
+
+    enum click-kind {
+        left,
+        right,
+        shift-left,
+        shift-right,
+        number-key,
+        drop,
+        control-drop,
+        double-click,
+        middle,
+        other,
+    }
+
+    /// A click in an open container. `menu` is set when it is a menu a plugin opened.
+    /// Cancellable: nothing moves. Plugin menus cancel by default.
+    record inventory-click {
+        player: uuid,
+        menu: option<u32>,
+        slot: s32,
+        click: click-kind,
+        /// The hotbar number for `number-key`.
+        hotbar-button: s32,
+        item: item-stack,
+        cursor: item-stack,
+        cancelled: bool,
+    }
+
+    record inventory-close {
+        player: uuid,
+        menu: option<u32>,
+    }
+
+    record player-game-mode-change {
+        player: uuid,
+        old-mode: game-mode,
+        new-mode: game-mode,
+        cancelled: bool,
+    }
+
+    /// The server-list ping (status request).
+    record server-list-ping {
+        address: string,
+        /// mut
+        motd: text,
+        /// mut
+        max-players: u32,
+        online-players: u32,
+        /// mut: false hides the player sample.
+        show-players: bool,
+    }
+
+    /// A custom-payload packet a player's client sent on a channel this plugin registered.
+    record plugin-message {
+        player: uuid,
+        channel: string,
+        data: list<u8>,
+    }
+
+    record chunk-load {
+        %world: string,
+        x: s32,
+        z: s32,
+        new-chunk: bool,
+    }
+
+    record chunk-unload {
+        %world: string,
+        x: s32,
+        z: s32,
+    }
+
+    /// An event another plugin fired with `events.call-custom`. Cancellable.
+    record custom-event {
+        name: string,
+        source-plugin: string,
+        payload: list<u8>,
+        cancelled: bool,
+    }
+}
+
+/// Subscribing to events (host side).
+interface events {
+    use types.{priority};
+
+    type handler-id = u32;
+
+    /// Subscribe to an event by its name: the kebab-case record name of `event-types`
+    /// ("player-join", "block-break"...) or "custom:<name>" for custom events.
+    /// The host then calls the matching `handlers.handle-<name>` export with the id returned.
+    /// A plugin that subscribes to nothing pays nothing.
+    subscribe: func(event: string, priority: priority, ignore-cancelled: bool) -> result<handler-id, string>;
+
+    /// Stop one subscription.
+    unsubscribe: func(handler: handler-id);
+
+    /// Fire a custom event ("<plugin-id>:<name>") to every subscriber; returns whether a handler cancelled it.
+    call-custom: func(name: string, payload: list<u8>) -> bool;
+}

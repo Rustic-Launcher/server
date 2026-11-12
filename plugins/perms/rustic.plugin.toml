@@ -1,0 +1,14 @@
+# Rustic plugin manifest; the format is specified in docs/PLUGIN_FORMAT.md.
+[plugin]
+id = "perms"
+name = "Perms"
+version = "0.1.0"
+api = "0.1"
+authors = ["Rustic contributors"]
+license = "MIT OR Apache-2.0"
+entry = "perms.wasm"
+description = "Permission groups with inheritance, weights, prefixes, wildcards, temporary nodes and promotion tracks. Provides the permission-provider and chat-meta services."
+
+[capabilities]
+# Preopen the data folder as "/": config.toml and the perms.toml export.
+filesystem = "data-folder"

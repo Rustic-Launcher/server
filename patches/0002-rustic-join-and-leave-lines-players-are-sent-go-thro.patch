@@ -1,0 +1,479 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: BouBou <69978359+BouBouw@users.noreply.github.com>
+Date: Wed, 11 Nov 2026 03:27:04 +0100
+Subject: [PATCH] rustic: join and leave lines players are sent go through
+ player_join_message / player_leave_message
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/crates/horizon-client/src/game/lan.rs b/crates/horizon-client/src/game/lan.rs
+index 68ab29f66..c8e202e69 100644
+--- a/crates/horizon-client/src/game/lan.rs
++++ b/crates/horizon-client/src/game/lan.rs
+@@ -2153,6 +2153,40 @@ impl Game<'_> {
+                         }
+                         host.hub.former_names.insert(uuid, old.name);
+                     }
++                    // The join line every player is sent, as the mods leave it: asked once,
++                    // before the player is placed (the host's chat shows the same).
++                    let mut chosen_join = None;
++                    if !horizon_client::mod_api::mods().is_empty()
++                        && let Some((uuid, name)) = host
++                            .hub
++                            .guest(conn)
++                            .filter(|g| !g.held && !g.fake)
++                            .map(|g| (g.uuid, g.name.clone()))
++                    {
++                        let shown = host.hub.default_joined_line(uuid, &name);
++                        let mut args = vec![Text::literal(name.clone())];
++                        let key = match &renamed {
++                            Some(old) => {
++                                args.push(Text::literal(old.clone()));
++                                "multiplayer.player.joined.renamed"
++                            }
++                            None => "multiplayer.player.joined",
++                        };
++                        let default = system_line_text(&shown, key, &args);
++                        let mut line = Some(default.clone());
++                        self.lan = Some(host);
++                        self.native_player_join_message(uuid, &name, &mut line);
++                        host = self.lan.take()?;
++                        if line.as_ref().map(Text::component) != Some(default.component()) {
++                            host.hub.join_lines.insert(
++                                uuid,
++                                line.as_ref().map(|text| {
++                                    horizon_client::lan::data::component_nbt(&text.component())
++                                }),
++                            );
++                            chosen_join = Some(line);
++                        }
++                    }
+                     self.lan_guest_joined(&mut host, conn, entities, spawn);
+                     if self.options.dedicated.is_some()
+                         && let Some(g) = host.hub.guest(conn)
+@@ -2184,6 +2218,14 @@ impl Game<'_> {
+                                 "INFO",
+                                 &horizon_client::lan::arrivals::held_line(&g.name),
+                             );
++                        } else if let Some(chosen) = chosen_join {
++                            // A line a mod hid is not logged either.
++                            if let Some(line) = chosen {
++                                super::dedicated::log(
++                                    "INFO",
++                                    &format!("System chat: {}", line.plain()),
++                                );
++                            }
+                         } else if let Some(old) = renamed {
+                             let line = Text::translate(
+                                 "multiplayer.player.joined.renamed",
+@@ -2203,16 +2245,15 @@ impl Game<'_> {
+                         && let Some(g) = host.hub.guest(conn)
+                         && g.placed
+                     {
+-                        // The host's chat hears of the newcomer as the guests do.
+-                        let (uuid, name) = (g.uuid, g.name.clone());
++                        // The host's chat hears of the newcomer as the guests do, with the
++                        // line the mods chose for them.
+                         let who = self.player_text(&g.name, g.uuid);
+-                        let mut line = Some(
+-                            Text::translate("multiplayer.player.joined", &[who])
+-                                .with_color(horizon_client::text::YELLOW),
+-                        );
+-                        self.lan = Some(host);
+-                        self.native_player_join_message(uuid, &name, &mut line);
+-                        host = self.lan.take()?;
++                        let line = chosen_join.unwrap_or_else(|| {
++                            Some(
++                                Text::translate("multiplayer.player.joined", &[who])
++                                    .with_color(horizon_client::text::YELLOW),
++                            )
++                        });
+                         if let Some(line) = line {
+                             self.system_message(line);
+                         }
+@@ -2261,6 +2302,32 @@ impl Game<'_> {
+                     self.take_parent_vehicle(&mut host, &mut guest);
+                     self.save_guest(&host, &mut guest);
+                     self.guest_attachments.remove(&guest.uuid);
++                    host.hub.join_lines.remove(&guest.uuid);
++                    // The "left the game" line the hub held back while mods are loaded: the
++                    // mods see it once, the players and the host's chat get what they leave.
++                    let mut chosen_leave = None;
++                    if let Some((shown, told)) = guest.leave_line.take() {
++                        let default = system_line_text(
++                            &shown,
++                            "multiplayer.player.left",
++                            &[Text::literal(guest.name.clone())],
++                        );
++                        let mut line = Some(default.clone());
++                        self.lan = Some(host);
++                        self.native_player_leave_message(guest.uuid, &guest.name, &mut line);
++                        host = self.lan.take()?;
++                        if line.as_ref().map(Text::component) == Some(default.component()) {
++                            host.hub.send_system_line(&told, shown);
++                        } else {
++                            if let Some(text) = &line {
++                                host.hub.send_system_line(
++                                    &told,
++                                    horizon_client::lan::data::component_nbt(&text.component()),
++                                );
++                            }
++                            chosen_leave = Some(line);
++                        }
++                    }
+                     host.play.remove(&guest.conn);
+                     self.guest_combat.remove(&guest.conn);
+                     // A held player was recorded as joined at its login: it leaves too.
+@@ -2290,21 +2357,28 @@ impl Game<'_> {
+                         // announced as leaving, so the line is not logged either; a held
+                         // player was never announced at all.
+                         if guest.placed && !guest.quiet_leave {
+-                            super::dedicated::log(
+-                                "INFO",
+-                                &format!("System chat: {} left the game", guest.name),
+-                            );
++                            match chosen_leave {
++                                Some(Some(line)) => super::dedicated::log(
++                                    "INFO",
++                                    &format!("System chat: {}", line.plain()),
++                                ),
++                                // A line a mod hid is not logged either.
++                                Some(None) => {}
++                                None => super::dedicated::log(
++                                    "INFO",
++                                    &format!("System chat: {} left the game", guest.name),
++                                ),
++                            }
+                         }
+                     } else if self.player.is_some() && guest.placed && !guest.quiet_leave {
+                         // ServerGamePacketListenerImpl.removePlayerFromWorld.
+                         let who = self.player_text(&guest.name, guest.uuid);
+-                        let mut line = Some(
+-                            Text::translate("multiplayer.player.left", &[who])
+-                                .with_color(horizon_client::text::YELLOW),
+-                        );
+-                        self.lan = Some(host);
+-                        self.native_player_leave_message(guest.uuid, &guest.name, &mut line);
+-                        host = self.lan.take()?;
++                        let line = chosen_leave.unwrap_or_else(|| {
++                            Some(
++                                Text::translate("multiplayer.player.left", &[who])
++                                    .with_color(horizon_client::text::YELLOW),
++                            )
++                        });
+                         if let Some(line) = line {
+                             self.system_message(line);
+                         }
+@@ -3627,6 +3701,16 @@ impl Game<'_> {
+     }
+ }
+ 
++/// A system line the hub built (`shown`, a component) as a mod sees it: the English text of `key`
++/// with `args` for `Text::plain`, and the exact component for the players.
++fn system_line_text(shown: &horizon_world::nbt::Tag, key: &str, args: &[Text]) -> Text {
++    let component =
++        serde_json::from_str(&horizon_client::lan::conn::component_json(shown)).unwrap_or_default();
++    Text::translate(key, args)
++        .with_color(horizon_client::text::YELLOW)
++        .with_component(component)
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::{EventTimings, OFFHAND_SLOT, equipment_slot_name, living_flags, mob_freeze_meta};
+diff --git a/crates/horizon-client/src/game/native_hooks.rs b/crates/horizon-client/src/game/native_hooks.rs
+index e37a8ba70..cdf89b035 100644
+--- a/crates/horizon-client/src/game/native_hooks.rs
++++ b/crates/horizon-client/src/game/native_hooks.rs
+@@ -8922,10 +8922,13 @@ impl Game<'_> {
+     pub(super) fn native_player_died(&mut self, player: u128, cause: Option<&str>) {
+         mod_api::dispatch_player_died(self, mod_api::mods(), player, cause);
+     }
+-    /// `player` (`name`) is joining: the "joined the game" line the host's chat
+-    /// shows (`line`). Set `line` to `None` to show nothing, or replace it. Only
+-    /// the host's chat is asked: a dedicated server sends no such line. Server-side.
+-    /// Pending API @API:player_join_message@.
++    /// `player` (`name`) is joining: the "joined the game" line (`line`) the
++    /// players already on the server are sent and the host's chat shows (Bukkit's
++    /// `PlayerJoinEvent.joinMessage`). Set `line` to `None` to send and show
++    /// nothing, or replace it; a line left as it was is sent as before. Asked once,
++    /// before the player is placed, on a dedicated server as on a LAN host; a
++    /// player arriving through a proxy's hand-over and a mod's fake player are not
++    /// asked. Server-side. Pending API @API:player_join_message@.
+     pub(super) fn native_player_join_message(
+         &mut self,
+         player: u128,
+@@ -8934,9 +8937,14 @@ impl Game<'_> {
+     ) {
+         mod_api::dispatch_player_join_message(self, mod_api::mods(), player, name, line);
+     }
+-    /// `player` (`name`) is leaving: the "left the game" line the host's chat
+-    /// shows (`line`). Set `line` to `None` to show nothing, or replace it. Server-side.
+-    /// Pending API @API:player_leave_message@.
++    /// `player` (`name`) left: the "left the game" line (`line`) the players
++    /// still on the server are sent and the host's chat shows (Bukkit's
++    /// `PlayerQuitEvent.quitMessage`). Set `line` to `None` to send and show
++    /// nothing, or replace it; a line left as it was is sent as before. Asked once,
++    /// in the tick the server notices the player gone, after `player_logging_out`
++    /// and before `player_logged_out`; a player who leaves without the line (moved
++    /// to another server unannounced) is not asked. Server-side. Pending API
++    /// @API:player_leave_message@.
+     pub(super) fn native_player_leave_message(
+         &mut self,
+         player: u128,
+diff --git a/crates/horizon-client/src/lan/arrivals.rs b/crates/horizon-client/src/lan/arrivals.rs
+index 65db6be9f..253696f03 100644
+--- a/crates/horizon-client/src/lan/arrivals.rs
++++ b/crates/horizon-client/src/lan/arrivals.rs
+@@ -1056,6 +1056,38 @@ mod hub_tests {
+         assert_eq!(ids(&mine)[0], id::LOGIN);
+     }
+ 
++    /// A join line a mod chose (`Hub::join_lines`, `native_player_join_message`) replaces
++    /// vanilla's, or hides it; the player still gets their list entry.
++    #[test]
++    fn a_join_line_a_mod_chose_replaces_or_hides_the_vanilla_one() {
++        let mut hub = hub();
++        let (mut watcher, seen) = guest(1, 1, "Watcher");
++        watcher.placed = true;
++        hub.guests.push(watcher);
++        let (hidden, _a) = guest(2, 2, "Quiet");
++        hub.guests.push(hidden);
++        hub.join_lines.insert(2, None);
++        place(&mut hub, 2);
++        let told = ids(&seen);
++        assert!(!told.contains(&id::SYSTEM_CHAT), "{told:?}");
++        assert!(told.contains(&id::PLAYER_INFO_UPDATE), "{told:?}");
++        let (greeted, _b) = guest(3, 3, "Loud");
++        hub.guests.push(greeted);
++        let line = crate::scoreboard::component_tag(&serde_json::json!({"text": "Welcome, Loud"}));
++        hub.join_lines.insert(3, Some(line));
++        place(&mut hub, 3);
++        let chat: Vec<_> = packets(&seen)
++            .into_iter()
++            .filter(|(id, _)| *id == id::SYSTEM_CHAT)
++            .collect();
++        assert_eq!(chat.len(), 1);
++        assert!(
++            chat[0].1.windows(13).any(|w| w == b"Welcome, Loud"),
++            "the mod's line is sent"
++        );
++        assert!(hub.join_lines.is_empty(), "each chosen line is taken once");
++    }
++
+     /// A player the proxy announced is held: it gets the whole join sequence,
+     /// and the player already there is told nothing at all.
+     #[test]
+@@ -1979,6 +2011,21 @@ mod hub_tests {
+         assert!(ids(&seen).contains(&id::SYSTEM_CHAT));
+     }
+ 
++    /// While mods are loaded the hub holds the leave line back, with whom it goes to, for the game
++    /// to send once the mods have seen it (`native_player_leave_message`).
++    #[test]
++    fn while_mods_are_loaded_the_leave_line_waits_for_the_game() {
++        let (mut hub, seen, _mine, h) = frozen_with_a_watcher();
++        hub.mods_loaded = true;
++        super::release_request(&mut hub, &format!("{UUID} {h} moved announce"));
++        assert!(!ids(&seen).contains(&id::SYSTEM_CHAT), "held back");
++        let mut left = left_events(&mut hub);
++        let (line, told) = left[0].leave_line.take().expect("the held line");
++        assert_eq!(told, [1]);
++        hub.send_system_line(&told, line);
++        assert_eq!(ids(&seen), [id::SYSTEM_CHAT]);
++    }
++
+     #[test]
+     fn an_aborted_hand_over_lets_the_player_go_on_as_it_was() {
+         let (mut hub, seen, mine, h) = frozen_with_a_watcher();
+diff --git a/crates/horizon-client/src/lan/guest.rs b/crates/horizon-client/src/lan/guest.rs
+index f37b74b6b..db38e1d47 100644
+--- a/crates/horizon-client/src/lan/guest.rs
++++ b/crates/horizon-client/src/lan/guest.rs
+@@ -389,6 +389,9 @@ pub struct Guest {
+     /// Leaving for another server (`player-release moved`) without the "left the
+     /// game" line.
+     pub quiet_leave: bool,
++    /// The "left the game" line the hub held back for the game to send once the mods have seen
++    /// it (`native_player_leave_message`, while mods are loaded), and the connections it goes to.
++    pub leave_line: Option<(horizon_world::nbt::Tag, Vec<u32>)>,
+     /// Taken out of the world because a proxy moved it to another server: the game
+     /// saves neither its player file nor its records, since the other server has the
+     /// player now.
+@@ -590,6 +593,7 @@ impl Guest {
+             arrival_handover: None,
+             arrival_recentered: false,
+             quiet_leave: false,
++            leave_line: None,
+             released: false,
+             hidden_commands: Vec::new(),
+             granted_commands: Vec::new(),
+diff --git a/crates/horizon-client/src/lan/hub.rs b/crates/horizon-client/src/lan/hub.rs
+index f2021aaf3..821f60f79 100644
+--- a/crates/horizon-client/src/lan/hub.rs
++++ b/crates/horizon-client/src/lan/hub.rs
+@@ -391,6 +391,9 @@ pub struct Hub {
+     /// The name the server's user cache knew a joining player by, by UUID, looked up before the
+     /// cache learns the new one (PlayerList.placeNewPlayer's `oldName`); taken by the join line.
+     pub former_names: std::collections::HashMap<u128, String>,
++    /// The join line a mod chose for a joining player (`native_player_join_message`), by UUID,
++    /// taken when they are placed: none sends no line. A player not in it gets vanilla's.
++    pub join_lines: std::collections::HashMap<u128, Option<Tag>>,
+     last_clock: i64,
+     last_rate: f32,
+     ticking: (f32, bool),
+@@ -568,20 +571,43 @@ impl Hub {
+     /// PlayerList.placeNewPlayer's join line: `multiplayer.player.joined`, or
+     /// `multiplayer.player.joined.renamed` with the cached old name when the
+     /// player's name changed (ignoring case) since the user cache last saw it.
+-    fn joined_line(&mut self, uuid: u128, name: &str) -> Tag {
++    /// The line a mod chose instead (`join_lines`) is taken first: none when it hid it.
++    fn joined_line(&mut self, uuid: u128, name: &str) -> Option<Tag> {
++        let line = self.default_joined_line(uuid, name);
++        self.former_names.remove(&uuid);
++        self.join_lines.remove(&uuid).unwrap_or(Some(line))
++    }
++    /// The join line vanilla sends for `uuid`, without taking anything: what the mods are shown
++    /// before they choose one (`join_lines`).
++    pub fn default_joined_line(&self, uuid: u128, name: &str) -> Tag {
+         let display = self.player_display_name(uuid, name);
+         match self
+             .former_names
+-            .remove(&uuid)
++            .get(&uuid)
+             .filter(|old| !old.eq_ignore_ascii_case(name))
+         {
+             Some(old) => yellow_names(
+                 "multiplayer.player.joined.renamed",
+-                vec![display, string(&old)],
++                vec![display, string(old)],
+             ),
+             None => yellow_names("multiplayer.player.joined", vec![display]),
+         }
+     }
++    /// Sends the system line `content` to the placed players among `conns`.
++    pub fn send_system_line(&self, conns: &[u32], content: Tag) {
++        let line = C::SystemChat(play::SystemChat {
++            content,
++            overlay: false,
++        })
++        .encode();
++        for g in self
++            .guests
++            .iter()
++            .filter(|g| g.placed && conns.contains(&g.conn))
++        {
++            g.sender.send(line.clone());
++        }
++    }
+ }
+ 
+ /// A yellow translation of player names (`multiplayer.player.joined`).
+@@ -782,6 +808,7 @@ impl Hub {
+             display_names: std::collections::HashMap::new(),
+             name_tags: std::collections::HashMap::new(),
+             former_names: std::collections::HashMap::new(),
++            join_lines: std::collections::HashMap::new(),
+         }
+     }
+ 
+@@ -1507,14 +1534,16 @@ impl Hub {
+         // a native mod hides it from). A held player is not announced, and
+         // not placed.
+         if !held {
+-            let joined = C::SystemChat(play::SystemChat {
+-                content: self.joined_line(uuid, &name),
+-                overlay: false,
+-            })
+-            .encode();
+-            for g in self.guests.iter().filter(|g| g.placed && g.conn != conn) {
+-                if self.sees(g.permission, uuid) {
+-                    g.sender.send(joined.clone());
++            if let Some(content) = self.joined_line(uuid, &name) {
++                let joined = C::SystemChat(play::SystemChat {
++                    content,
++                    overlay: false,
++                })
++                .encode();
++                for g in self.guests.iter().filter(|g| g.placed && g.conn != conn) {
++                    if self.sees(g.permission, uuid) {
++                        g.sender.send(joined.clone());
++                    }
+                 }
+             }
+             self.guests[i].placed = true;
+@@ -1724,9 +1753,9 @@ impl Hub {
+             let g = &self.guests[i];
+             (g.name.clone(), g.uuid, g.game_mode, g.conn)
+         };
+-        if announce {
++        if announce && let Some(content) = self.joined_line(uuid, &name) {
+             let joined = C::SystemChat(play::SystemChat {
+-                content: self.joined_line(uuid, &name),
++                content,
+                 overlay: false,
+             })
+             .encode();
+@@ -2612,22 +2641,25 @@ impl Hub {
+         self.broadcast_watching(&C::RemoveEntities(play::RemoveEntities {
+             ids: vec![g.entity_id],
+         }));
+-        let left = C::SystemChat(play::SystemChat {
+-            content: yellow_names(
+-                "multiplayer.player.left",
+-                vec![self.player_display_name(g.uuid, &g.name)],
+-            ),
+-            overlay: false,
+-        })
+-        .encode();
++        let left = yellow_names(
++            "multiplayer.player.left",
++            vec![self.player_display_name(g.uuid, &g.name)],
++        );
++        let mut told = Vec::new();
+         for o in self.guests.iter_mut().filter(|o| o.placed) {
+             if o.tab_hidden.remove(&g.uuid) {
+                 continue;
+             }
+             if !g.quiet_leave {
+-                o.sender.send(left.clone());
++                told.push(o.conn);
+             }
+         }
++        // While mods are loaded the game sends it once they have seen it.
++        if self.mods_loaded && !g.quiet_leave {
++            g.leave_line = Some((left, told));
++        } else {
++            self.send_system_line(&told, left);
++        }
+         g
+     }
+ 
+diff --git a/tools/native-hook-fragments/player_join_message.json b/tools/native-hook-fragments/player_join_message.json
+index 478764491..c2697963e 100644
+--- a/tools/native-hook-fragments/player_join_message.json
++++ b/tools/native-hook-fragments/player_join_message.json
+@@ -10,7 +10,7 @@
+       }
+     }
+   ],
+-  "rust_summary": "the host chat's \"joined the game\" line (`native_player_join_message`).",
+-  "doc_summary": "`native_player_join_message(player, name, line)` is asked for the \"joined the game\" line the host's chat shows: set `line` to `None` to show none, or replace it. A dedicated server sends no such line. Bundles need \"hooks\": @API:player_join_message@.",
++  "rust_summary": "the \"joined the game\" line players are sent and the host's chat shows (`native_player_join_message`).",
++  "doc_summary": "`native_player_join_message(player, name, line)` is asked for the \"joined the game\" line the players on the server are sent and the host's chat shows (Bukkit's `PlayerJoinEvent.joinMessage`): set `line` to `None` to send none, or replace it; a line left unchanged is sent as before. Asked once per join, before the player is placed, on dedicated servers and LAN hosts. Bundles need \"hooks\": @API:player_join_message@.",
+   "comments": []
+ }
+diff --git a/tools/native-hook-fragments/player_leave_message.json b/tools/native-hook-fragments/player_leave_message.json
+index 70f05744e..17a1258af 100644
+--- a/tools/native-hook-fragments/player_leave_message.json
++++ b/tools/native-hook-fragments/player_leave_message.json
+@@ -10,7 +10,7 @@
+       }
+     }
+   ],
+-  "rust_summary": "the host chat's \"left the game\" line (`native_player_leave_message`).",
+-  "doc_summary": "`native_player_leave_message(player, name, line)` is asked for the \"left the game\" line the host's chat shows: set `line` to `None` to show none, or replace it. Bundles need \"hooks\": @API:player_leave_message@.",
++  "rust_summary": "the \"left the game\" line players are sent and the host's chat shows (`native_player_leave_message`).",
++  "doc_summary": "`native_player_leave_message(player, name, line)` is asked for the \"left the game\" line the players on the server are sent and the host's chat shows (Bukkit's `PlayerQuitEvent.quitMessage`): set `line` to `None` to send none, or replace it; a line left unchanged is sent as before. Asked once per leave, between `player_logging_out` and `player_logged_out`. Bundles need \"hooks\": @API:player_leave_message@.",
+   "comments": []
+ }

@@ -1,0 +1,41 @@
+[package]
+name = "rusticmc-cli"
+description = "The `rustic` command: create, build, check, test, run and package Rustic plugins; analyze Bukkit jars"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "rustic"
+path = "src/main.rs"
+
+[features]
+default = ["wasm"]
+## Load WebAssembly plugins in the `rustic run` REPL (MockServer through rusticmc-host).
+wasm = ["rusticmc-test/wasm"]
+
+[dependencies]
+rusticmc-core = { path = "../rusticmc-core" }
+rusticmc-test = { path = "../rusticmc-test", default-features = false }
+rusticmc-bridge-analyze = { path = "../../bridge/rusticmc-bridge-analyze" }
+clap = { version = "4.6.7", features = ["derive", "wrap_help"] }
+anstream = "0.6"
+anstyle = "1.0.14"
+anyhow = "1.0.104"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+toml = "1.2.1"
+wasmparser = "0.262"
+wit-parser = "0.262"
+notify = "8"
+sha2 = "0.10.9"
+tempfile = "3.27.0"
+
+[dev-dependencies]
+assert_cmd = "2.2"
+predicates = "3"
+zip = { version = "9.5.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[lints]
+workspace = true

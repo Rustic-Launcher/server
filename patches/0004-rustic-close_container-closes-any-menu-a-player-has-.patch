@@ -1,0 +1,84 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: BouBou <69978359+BouBouw@users.noreply.github.com>
+Date: Wed, 11 Nov 2026 03:27:06 +0100
+Subject: [PATCH] rustic: close_container closes any menu a player has open
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/crates/horizon-client/src/game/lan_actions.rs b/crates/horizon-client/src/game/lan_actions.rs
+index b09da35dc..0e351467a 100644
+--- a/crates/horizon-client/src/game/lan_actions.rs
++++ b/crates/horizon-client/src/game/lan_actions.rs
+@@ -327,7 +327,7 @@ fn direction(face: i32) -> [i32; 3] {
+ 
+ /// The windows a guest has open besides their inventory: the block or mod
+ /// container, the crafting table, a station, a lectern, a merchant, a mount.
+-fn guest_open_windows(host: &LanHost, conn: u32) -> Vec<i32> {
++pub(super) fn guest_open_windows(host: &LanHost, conn: u32) -> Vec<i32> {
+     let mut windows: Vec<i32> = host
+         .hub
+         .guest(conn)
+diff --git a/crates/horizon-client/src/game/native_menus.rs b/crates/horizon-client/src/game/native_menus.rs
+index 651dec2bf..d70185a4e 100644
+--- a/crates/horizon-client/src/game/native_menus.rs
++++ b/crates/horizon-client/src/game/native_menus.rs
+@@ -227,6 +227,39 @@ impl Game<'_> {
+             host.hub.close_container(conn);
+         }
+     }
++    /// Closes whatever menu the player has open, one of the game's own (a
++    /// chest, a furnace, a crafting table, a villager's trades, a mount's
++    /// inventory) as well as a mod's (Bukkit's `HumanEntity.closeInventory`,
++    /// vanilla's `ServerPlayer.closeContainer`): it is removed as the
++    /// player's own close removes it (the cursor stack back to the inventory,
++    /// the lid, the trade written back) and their client's window closes.
++    /// `native_player_container_close` (or `native_menu_closed` for a mod's
++    /// menu) hears it as it hears the player's own close. False when the
++    /// player is not here or has no menu open. API @API:close_container@.
++    pub(super) fn native_close_container(&mut self, uuid: u128) -> bool {
++        let Some(conn) = self.native_conn(uuid) else {
++            return false;
++        };
++        let Some(mut host) = self.lan.take() else {
++            return false;
++        };
++        let windows = super::lan_actions::guest_open_windows(&host, conn);
++        if !windows.is_empty() {
++            self.guest_close_all(&mut host, conn);
++            for container in &windows {
++                host.hub.send_to(
++                    conn,
++                    &horizon_protocol::packets::play::Clientbound::ContainerClose(
++                        horizon_protocol::packets::play::ContainerClose {
++                            container: *container,
++                        },
++                    ),
++                );
++            }
++        }
++        self.lan = Some(host);
++        !windows.is_empty()
++    }
+     /// The player's 36 inventory slots (0..9 the hotbar), to show or offer
+     /// them; None for a player not here, dead, or whose state is swapped in.
+     pub(super) fn native_player_stacks(&self, uuid: u128) -> Option<Vec<Option<ItemStack>>> {
+diff --git a/tools/native-hook-fragments/close_container.json b/tools/native-hook-fragments/close_container.json
+new file mode 100644
+index 000000000..e16027e0f
+--- /dev/null
++++ b/tools/native-hook-fragments/close_container.json
+@@ -0,0 +1,14 @@
++{
++  "hooks": [],
++  "helpers": [
++    {
++      "name": "close_container",
++      "target": "horizon_client::game::native_menus::Game<'_>::native_close_container"
++    }
++  ],
++  "rust_summary": "closing whatever menu a player has open, a vanilla container included (`native_close_container`).",
++  "doc_summary": "`native_close_container(uuid)` closes the menu a player has open, one of the game's own (a chest, a furnace, a villager's trades...) or a mod's, as the player's own close does, and closes their client's window (Bukkit's `HumanEntity.closeInventory`); false when they have none open. API @API:close_container@.",
++  "comments": [
++    "crates/horizon-client/src/game/native_menus.rs"
++  ]
++}

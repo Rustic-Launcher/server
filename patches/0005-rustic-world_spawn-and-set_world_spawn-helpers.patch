@@ -1,0 +1,119 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: BouBou <69978359+BouBouw@users.noreply.github.com>
+Date: Wed, 11 Nov 2026 03:27:06 +0100
+Subject: [PATCH] rustic: world_spawn and set_world_spawn helpers
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/crates/horizon-client/src/game/commands.rs b/crates/horizon-client/src/game/commands.rs
+index 673f94fa1..86f224ca8 100644
+--- a/crates/horizon-client/src/game/commands.rs
++++ b/crates/horizon-client/src/game/commands.rs
+@@ -195,7 +195,7 @@ fn rotation_in((lo, hi): (Option<f64>, Option<f64>), angle: f32) -> bool {
+     }
+ }
+ /// `Mth.wrapDegrees`.
+-fn wrap_degrees(angle: f32) -> f32 {
++pub(super) fn wrap_degrees(angle: f32) -> f32 {
+     let wrapped = angle % 360.0;
+     if wrapped >= 180.0 {
+         wrapped - 360.0
+@@ -3873,7 +3873,22 @@ impl Game<'_> {
+         };
+         // SetWorldSpawnCommand uses RespawnData.of before storing or comparing.
+         let rot = [wrap_degrees(rot[0]), rot[1].clamp(-90.0, 90.0)];
+-        // LevelData.setRespawnData: the world's spawn (level.dat `spawn`).
++        self.set_world_spawn(pos, rot);
++        let args = [
++            Text::literal(pos[0].to_string()),
++            Text::literal(pos[1].to_string()),
++            Text::literal(pos[2].to_string()),
++            Text::literal(java_float(f64::from(rot[0]))),
++            Text::literal(java_float(f64::from(rot[1]))),
++            Text::literal(self.dim.id()),
++        ];
++        self.feedback(Text::translate("commands.setworldspawn.success", &args));
++        Ok(1)
++    }
++    /// `LevelData.setRespawnData`, as `/setworldspawn` sets it: the world's
++    /// spawn (level.dat `spawn`) at `pos` facing `rot` (yaw wrapped, pitch
++    /// clamped), told to the players and the mods.
++    pub(super) fn set_world_spawn(&mut self, pos: [i32; 3], rot: [f32; 2]) {
+         let previous_point = self.world_spawn_position().map(|v| v.floor() as i32);
+         let old = self.level.world_spawn.replace(pos);
+         let old_angle = self.level.world_spawn_angle;
+@@ -3893,16 +3908,6 @@ impl Game<'_> {
+                 f64::from(pos[2]) + 0.5,
+             ));
+         }
+-        let args = [
+-            Text::literal(pos[0].to_string()),
+-            Text::literal(pos[1].to_string()),
+-            Text::literal(pos[2].to_string()),
+-            Text::literal(java_float(f64::from(rot[0]))),
+-            Text::literal(java_float(f64::from(rot[1]))),
+-            Text::literal(self.dim.id()),
+-        ];
+-        self.feedback(Text::translate("commands.setworldspawn.success", &args));
+-        Ok(1)
+     }
+     fn item_matches(&self, predicate: &ItemInput, item: &str) -> bool {
+         if predicate.any {
+diff --git a/crates/horizon-client/src/game/native_level_world.rs b/crates/horizon-client/src/game/native_level_world.rs
+index d9eb520a8..83ddd1aae 100644
+--- a/crates/horizon-client/src/game/native_level_world.rs
++++ b/crates/horizon-client/src/game/native_level_world.rs
+@@ -60,6 +60,29 @@ impl Game<'_> {
+     pub(super) fn native_level_is_thundering(&self, level: LevelRef) -> Option<bool> {
+         Some(weather_flags(self.native_level_weather(level)?).1)
+     }
++    /// The world spawn (level.dat's respawn data, Bukkit's `World.getSpawnLocation`): the block
++    /// position players without a respawn point of their own appear at, and its yaw and pitch.
++    /// None where no world runs here (a client of a server). API @API:world_spawn@.
++    pub(super) fn native_world_spawn(&self) -> Option<([i32; 3], [f32; 2])> {
++        if self.remote.is_some() {
++            return None;
++        }
++        let pos = self.world_spawn_position().map(|v| v.floor() as i32);
++        Some((pos, self.level.world_spawn_angle))
++    }
++    /// Sets the world spawn as `/setworldspawn <pos> <yaw> <pitch>` does (Bukkit's
++    /// `World.setSpawnLocation`), from any server hook: the yaw is wrapped to -180..180 and the
++    /// pitch clamped to -90..90, every player hears the new spawn, `native_spawn_change` is
++    /// heard, and a player whose respawn point was the old world spawn respawns at the new one.
++    /// False where no world runs here or for an angle that is not finite. API @API:world_spawn@.
++    pub(super) fn native_set_world_spawn(&mut self, pos: [i32; 3], angle: [f32; 2]) -> bool {
++        if self.native_world_spawn().is_none() || !angle.iter().all(|a| a.is_finite()) {
++            return false;
++        }
++        let yaw = super::commands::wrap_degrees(angle[0]);
++        self.set_world_spawn(pos, [yaw, angle[1].clamp(-90.0, 90.0)]);
++        true
++    }
+     /// Sets the time of day, as `/time set <ticks>` does on the overworld clock: mods hear
+     /// `time_skip` (cause `mod`) first and can keep the old time, and the clock's fraction of a
+     /// tick restarts. False for a negative time, for a handle that isn't this open's on the
+diff --git a/tools/native-hook-fragments/world_spawn.json b/tools/native-hook-fragments/world_spawn.json
+new file mode 100644
+index 000000000..719112218
+--- /dev/null
++++ b/tools/native-hook-fragments/world_spawn.json
+@@ -0,0 +1,18 @@
++{
++  "hooks": [],
++  "helpers": [
++    {
++      "name": "world_spawn",
++      "target": "horizon_client::game::native_level_world::Game<'_>::native_world_spawn"
++    },
++    {
++      "name": "set_world_spawn",
++      "target": "horizon_client::game::native_level_world::Game<'_>::native_set_world_spawn"
++    }
++  ],
++  "rust_summary": "the world spawn's position and angle, read and set from any server hook (`native_world_spawn`, `native_set_world_spawn`).",
++  "doc_summary": "`native_world_spawn()` is the world spawn (block position, yaw and pitch) and `native_set_world_spawn(pos, angle)` sets it as `/setworldspawn` does, players and `native_spawn_change` told (Bukkit's `World.getSpawnLocation` / `setSpawnLocation`). API @API:world_spawn@.",
++  "comments": [
++    "crates/horizon-client/src/game/native_level_world.rs"
++  ]
++}

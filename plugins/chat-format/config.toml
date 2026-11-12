@@ -1,0 +1,89 @@
+config_version = 1
+
+# Language of the plugin's messages: "auto" follows each player's client language (French for
+# fr_*, English otherwise), or force "en" / "fr".
+language = "auto"
+
+# Text uses MiniMessage-like tags (<red>, <bold>, <#ff8800>, <hover:show_text:'...'>...) and
+# legacy & codes in prefixes. Placeholders:
+#   {prefix} {suffix}  from the chat-meta service (a permissions plugin) when one is installed,
+#                      else the group's prefix/suffix below, else default_prefix/default_suffix
+#   {name}             the sender's name, hoverable (name_hover) and clickable (name_click)
+#   {message}          the message (coloured only with permission chatformat.color)
+#   {group} {world}
+[format]
+default = "{prefix}{name}{suffix}<dark_gray>:</dark_gray> <white>{message}"
+# Hover text of the sender's name: {name} {group} {world} {uuid} {ping}
+name_hover = "<gold>{name}</gold><newline><gray>Group: <white>{group}</white><newline><gray>World: <white>{world}</white><newline><gray>Ping: <white>{ping} ms</white><newline><dark_gray>Click to send a private message"
+# Put in the chat box when the name is clicked (empty: no click action).
+name_click = "/msg {name} "
+default_prefix = ""
+default_suffix = ""
+default_group = "default"
+
+# Group formats, in priority order. A player's group is the permission plugin's primary group
+# (or any of their groups) when one is installed; otherwise the first group whose permission
+# chatformat.group.<name> they hold. An empty format uses [format].default.
+[[groups]]
+name = "admin"
+format = "<dark_red>[Admin]</dark_red> {prefix}<red>{name}</red>{suffix}<dark_gray>:</dark_gray> <white>{message}"
+prefix = ""
+suffix = ""
+
+[[groups]]
+name = "vip"
+format = ""
+prefix = "&6[VIP] "
+suffix = ""
+
+# Join and quit lines ({name}). Empty hides the line; "vanilla" keeps the server's own line.
+[join]
+message = "<dark_gray>[<green>+</green>]</dark_gray> <gray>{name}"
+first_message = "<light_purple>Welcome <white>{name}</white> to the server!"
+quit_message = "<dark_gray>[<red>-</red>]</dark_gray> <gray>{name}"
+
+# @name mentions of online players are highlighted and the mentioned player hears a sound.
+[mentions]
+enabled = true
+format = "<yellow>@{name}</yellow>"
+sound = "minecraft:entity.experience_orb.pickup"
+volume = 1.0
+pitch = 1.2
+action_bar = true
+
+# Anti-spam (bypass: chatformat.bypass.spam).
+[spam]
+# At most max_messages messages per per_seconds seconds (0 disables the rate limit).
+max_messages = 5
+per_seconds = 8
+# The same message (ignoring case, spaces and punctuation) again within this many seconds is
+# refused (0 disables).
+duplicate_seconds = 30
+
+# Shouting (bypass: chatformat.bypass.caps).
+[caps]
+enabled = true
+min_letters = 6
+max_ratio = 0.7
+# "lowercase" shows the message in lower case, "block" refuses it.
+action = "lowercase"
+
+# Links and server addresses (bypass: chatformat.bypass.links).
+[links]
+enabled = true
+# "block" refuses the message, "mask" replaces each link with `replacement`.
+action = "block"
+replacement = "[link removed]"
+# Allowed domains; their subdomains are allowed too.
+whitelist = ["rustic.example.org"]
+
+# Forbidden words, case-insensitive (bypass: chatformat.bypass.filter).
+[words]
+# "mask" replaces each letter with mask_char, "block" refuses the message.
+action = "mask"
+mask_char = "*"
+list = ["heck", "darn"]
+
+[mute]
+# Commands a muted player may not use (first word, without the slash).
+blocked_commands = ["msg", "tell", "w", "whisper", "me", "r", "reply", "say"]

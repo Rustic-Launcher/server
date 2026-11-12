@@ -1,0 +1,8 @@
+# {{name}} configuration. Copied to plugins/{{id}}/config.toml on first start; edit that copy.
+config_version = 1
+
+# Sent to every joining player; {name} is their name. Tags: <green>, <bold>, <hover:...>...
+greeting = "<green>Welcome to the server, <bold>{name}</bold>!"
+
+# Nobody can break these blocks.
+protected_blocks = ["minecraft:diamond_ore"]

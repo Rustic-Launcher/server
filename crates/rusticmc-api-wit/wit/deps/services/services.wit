@@ -1,0 +1,63 @@
+package rustic:services@0.1.0;
+
+/// Standard service interfaces (the Vault idea): a provider plugin exports one, declares it with
+/// `services.provide`, and consumers import it. When no provider is loaded, every call returns
+/// `err(service-error::no-provider)`.
+
+interface common {
+    variant service-error {
+        no-provider,
+        /// The provider trapped or was disabled during the call.
+        provider-failed,
+        /// The provider refused (message for the user).
+        refused(string),
+    }
+
+    /// Same layout as `rustic:api/types.uuid`.
+    record uuid {
+        hi: u64,
+        lo: u64,
+    }
+}
+
+interface economy {
+    use common.{service-error, uuid};
+
+    /// Amounts are in minor units (cents) to avoid floating point.
+    currency-name: func(plural: bool) -> result<string, service-error>;
+    format: func(amount: s64) -> result<string, service-error>;
+    balance: func(account: uuid) -> result<s64, service-error>;
+    has: func(account: uuid, amount: s64) -> result<bool, service-error>;
+    deposit: func(account: uuid, amount: s64) -> result<s64, service-error>;
+    /// Fails with `refused` when the balance is too low.
+    withdraw: func(account: uuid, amount: s64) -> result<s64, service-error>;
+}
+
+/// A permission engine replacing Rustic's default one (the LuckPerms idea). When a provider is
+/// registered, every permission check of the server goes through `check`.
+interface permission-provider {
+    use common.{service-error, uuid};
+
+    variant tristate {
+        allow,
+        deny,
+        undefined,
+    }
+
+    /// `undefined` falls back to the node's declared default.
+    check: func(player: uuid, node: string) -> result<tristate, service-error>;
+    groups: func(player: uuid) -> result<list<string>, service-error>;
+    primary-group: func(player: uuid) -> result<option<string>, service-error>;
+    add-group: func(player: uuid, group: string) -> result<_, service-error>;
+    remove-group: func(player: uuid, group: string) -> result<_, service-error>;
+    set-node: func(player: uuid, node: string, value: tristate) -> result<_, service-error>;
+}
+
+/// Chat metadata (prefixes and suffixes), for chat formatters.
+interface chat-meta {
+    use common.{service-error, uuid};
+
+    prefix: func(player: uuid) -> result<option<string>, service-error>;
+    suffix: func(player: uuid) -> result<option<string>, service-error>;
+    group-prefix: func(group: string) -> result<option<string>, service-error>;
+}

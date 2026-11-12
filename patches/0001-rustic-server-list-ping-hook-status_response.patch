@@ -1,0 +1,311 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: BouBou <69978359+BouBouw@users.noreply.github.com>
+Date: Wed, 11 Nov 2026 03:27:03 +0100
+Subject: [PATCH] rustic: server list ping hook (status_response)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/crates/horizon-client/src/entry.rs b/crates/horizon-client/src/entry.rs
+index a6f8d1481..e6e3c307e 100644
+--- a/crates/horizon-client/src/entry.rs
++++ b/crates/horizon-client/src/entry.rs
+@@ -275,6 +275,18 @@ pub fn main_with(mods: crate::mod_api::Mods) {
+                 cancel,
+             );
+         },
++        status_response: |address, protocol, motd, description, max_players, online, sample| {
++            crate::mod_api::dispatch_status_response(
++                crate::mod_api::mods(),
++                address,
++                protocol,
++                motd,
++                description,
++                max_players,
++                online,
++                sample,
++            );
++        },
+     })
+     .is_err()
+     {
+diff --git a/crates/horizon-client/src/game/mods.rs b/crates/horizon-client/src/game/mods.rs
+index c6e3e6273..121591a74 100644
+--- a/crates/horizon-client/src/game/mods.rs
++++ b/crates/horizon-client/src/game/mods.rs
+@@ -1259,6 +1259,7 @@ mod tests {
+             ingredient_test: |_, _, _, _| {},
+             log_line: |_, _, _, _| {},
+             handshake: |_, _, _, _, _| {},
++            status_response: |_, _, _, _, _, _, _| {},
+         });
+         assert!(installed.is_ok());
+ 
+diff --git a/crates/horizon-client/src/lan/conn.rs b/crates/horizon-client/src/lan/conn.rs
+index 7a6a2ee82..69baf6454 100644
+--- a/crates/horizon-client/src/lan/conn.rs
++++ b/crates/horizon-client/src/lan/conn.rs
+@@ -706,7 +706,7 @@ fn serve_connection(
+         // ServerHandshakePacketListenerImpl: a server that does not reply
+         // to status requests closes the connection.
+         handshake::STATUS if !shared.enable_status() => Ok(()),
+-        handshake::STATUS => serve_status(&mut c, &shared, intention.protocol),
++        handshake::STATUS => serve_status(&mut c, &shared, intention.protocol, address),
+         handshake::TRANSFER if !shared.accepts_transfers() => {
+             login_disconnect(
+                 &mut c,
+@@ -765,10 +765,25 @@ fn serve_status(c: &mut Connection, shared: &Shared, protocol: i32) -> Result<()
+             status::Serverbound::StatusRequest(_) => {
+                 requested = true;
+                 // A client this server lets join is told its own protocol, so its list shows it joinable.
+-                let json = match older_client(shared, protocol) {
+-                    Some(_) => shared.status_json_for(protocol),
+-                    None => shared.status_json(),
++                let stated = match older_client(shared, protocol) {
++                    Some(_) => protocol,
++                    None => PROTOCOL_VERSION,
+                 };
++                let json = shared.status_json_edited(stated, |fields| {
++                    let mut description = None;
++                    native_status_response(
++                        address,
++                        protocol,
++                        &fields.motd,
++                        &mut description,
++                        &mut fields.max_players,
++                        &mut fields.online,
++                        &mut fields.sample,
++                    );
++                    fields.description = description.map(|text| {
++                        component_value(&super::data::component_nbt(&text.component()))
++                    });
++                });
+                 c.send(
+                     &status::Clientbound::StatusResponse(status::StatusResponse { json }).encode(),
+                 )
+diff --git a/crates/horizon-client/src/lan/mod.rs b/crates/horizon-client/src/lan/mod.rs
+index 81d981a85..df36aa45d 100644
+--- a/crates/horizon-client/src/lan/mod.rs
++++ b/crates/horizon-client/src/lan/mod.rs
+@@ -429,6 +429,19 @@ impl SecureChat {
+     }
+ }
+ 
++/// What a status response says (`MinecraftServer.buildServerStatus`), before it is encoded.
++pub struct StatusFields {
++    /// The server's motd, as `server.properties` has it.
++    pub motd: String,
++    /// The description sent instead of `motd`, as component JSON; none sends `motd`.
++    pub description: Option<crate::server::json::Json>,
++    pub max_players: i32,
++    pub online: i32,
++    /// The players named in the list's hover: up to 12 shuffled, none when the server hides them.
++    /// An empty sample is left out.
++    pub sample: Vec<(u128, String)>,
++}
++
+ /// State shared with the connection threads.
+ pub struct Shared {
+     /// What the next login is sent; `PlayerList.reloadResources` swaps it.
+@@ -574,17 +587,25 @@ impl Shared {
+     }
+     /// [`Self::status_json`] stating `protocol`: an older client's own, when it may join.
+     pub fn status_json_for(&self, protocol: i32) -> String {
++        self.status_json_edited(protocol, |_| {})
++    }
++    /// [`Self::status_json_for`] once `edit` has seen and changed what it says
++    /// (`native_status_response`): what it leaves as it found it is answered as before.
++    pub fn status_json_edited(
++        &self,
++        protocol: i32,
++        edit: impl FnOnce(&mut StatusFields),
++    ) -> String {
+         use crate::server::json::Json;
+         let motd = self.motd.lock().unwrap().clone();
+         let online: Vec<(u128, String)> = self.online.lock().unwrap().clone();
+-        let count = self.online();
+-        let mut players = vec![
+-            (
+-                "max".to_owned(),
+-                Json::Number(self.max_players().to_string()),
+-            ),
+-            ("online".to_owned(), Json::Number(count.to_string())),
+-        ];
++        let mut fields = StatusFields {
++            motd,
++            description: None,
++            max_players: i32::try_from(self.max_players()).unwrap_or(i32::MAX),
++            online: i32::try_from(self.online()).unwrap_or(i32::MAX),
++            sample: Vec::new(),
++        };
+         if !self.hide_online_players() && !online.is_empty() {
+             let size = online.len().min(12);
+             let offset = self.next_random(online.len() - size + 1);
+@@ -593,6 +614,21 @@ impl Shared {
+                 let j = self.next_random(i + 1);
+                 sample.swap(i, j);
+             }
++            fields.sample = sample;
++        }
++        edit(&mut fields);
++        let StatusFields {
++            motd,
++            description,
++            max_players,
++            online,
++            sample,
++        } = fields;
++        let mut players = vec![
++            ("max".to_owned(), Json::Number(max_players.to_string())),
++            ("online".to_owned(), Json::Number(online.to_string())),
++        ];
++        if !sample.is_empty() {
+             players.push((
+                 "sample".to_owned(),
+                 Json::Array(
+@@ -609,7 +645,10 @@ impl Shared {
+             ));
+         }
+         let mut status = vec![
+-            ("description".to_owned(), Json::String(motd)),
++            (
++                "description".to_owned(),
++                description.unwrap_or(Json::String(motd)),
++            ),
+             ("players".to_owned(), Json::Object(players)),
+             (
+                 "version".to_owned(),
+@@ -1190,6 +1229,50 @@ mod tests {
+         assert!(!hidden.contains("Player"));
+     }
+ 
++    /// `native_status_response`'s edits reach the answer; a ping no mod changes is answered as before.
++    #[test]
++    fn a_status_edit_changes_the_answer_and_no_edit_changes_nothing() {
++        use crate::server::json::Json;
++        let config = NetConfig {
++            announce: false,
++            listen: false,
++            ..NetConfig::loopback(0, "Status".into(), 8)
++        };
++        let lan = Lan::start_with(Arc::new(data::SyncData::empty()), config).unwrap();
++        assert!(
++            lan.shared
++                .status_json()
++                .contains("\"description\":\"Status\"")
++        );
++        let edited = lan.shared.status_json_edited(PROTOCOL_VERSION, |fields| {
++            assert_eq!(fields.motd, "Status");
++            assert_eq!((fields.max_players, fields.online), (8, 0));
++            fields.description = Some(Json::Object(vec![(
++                "text".to_owned(),
++                Json::String("Welcome".to_owned()),
++            )]));
++            fields.max_players = 100;
++            fields.online = 42;
++            fields.sample.push((7, "Herobrine".to_owned()));
++        });
++        assert!(
++            edited.contains("\"description\":{\"text\":\"Welcome\"}"),
++            "{edited}"
++        );
++        assert!(edited.contains("\"max\":100,\"online\":42"), "{edited}");
++        assert!(edited.contains("\"name\":\"Herobrine\""), "{edited}");
++        assert!(lan.shared.try_admit(MEMORY_ADDRESS, 1, "Player").is_none());
++        let emptied = lan.shared.status_json_edited(PROTOCOL_VERSION, |fields| {
++            assert_eq!(fields.sample, [(1, "Player".to_owned())]);
++            fields.sample.clear();
++        });
++        assert!(!emptied.contains("\"sample\""), "{emptied}");
++        assert_eq!(
++            lan.shared.status_json_edited(PROTOCOL_VERSION, |_| {}),
++            lan.shared.status_json()
++        );
++    }
++
+     /// One public address takes at most [`PER_ADDRESS`] places, its own coming back as they end;
+     /// another address, or a local one (a proxy hands everyone over from it), still gets one.
+     #[test]
+diff --git a/crates/horizon-client/src/menu.rs b/crates/horizon-client/src/menu.rs
+index fae6795a7..cb0b62b92 100644
+--- a/crates/horizon-client/src/menu.rs
++++ b/crates/horizon-client/src/menu.rs
+@@ -3909,6 +3909,7 @@ pub(crate) mod tests {
+                 ingredient_test: |_, _, _, _| {},
+                 log_line: |_, _, _, _| {},
+                 handshake: |_, _, _, _, _| {},
++                status_response: |_, _, _, _, _, _, _| {},
+             });
+         assert!(installed.is_ok());
+         let kind = Kind::Mod(Box::leak(Box::new(crate::containers::ModMenuType {
+diff --git a/crates/horizon-client/src/native_client_hooks.rs b/crates/horizon-client/src/native_client_hooks.rs
+index 7c378152d..950c6cbfd 100644
+--- a/crates/horizon-client/src/native_client_hooks.rs
++++ b/crates/horizon-client/src/native_client_hooks.rs
+@@ -34,6 +34,15 @@ pub struct NativeClientHooks {
+         &mut bool,
+         &mut Option<horizon_client_core::text::Text>,
+     ),
++    pub status_response: fn(
++        std::net::SocketAddr,
++        i32,
++        &str,
++        &mut Option<horizon_client_core::text::Text>,
++        &mut i32,
++        &mut i32,
++        &mut Vec<(u128, String)>,
++    ),
+ }
+ 
+ static HOOKS: OnceLock<NativeClientHooks> = OnceLock::new();
+@@ -227,6 +236,28 @@ pub(crate) fn handshake(
+     }
+ }
+ 
++pub(crate) fn status_response(
++    address: std::net::SocketAddr,
++    protocol: i32,
++    motd: &str,
++    description: &mut Option<horizon_client_core::text::Text>,
++    max_players: &mut i32,
++    online: &mut i32,
++    sample: &mut Vec<(u128, String)>,
++) {
++    if let Some(hooks) = HOOKS.get() {
++        (hooks.status_response)(
++            address,
++            protocol,
++            motd,
++            description,
++            max_players,
++            online,
++            sample,
++        );
++    }
++}
++
+ pub(crate) fn sound_play(
+     sound: &crate::sound_engine::SoundPlayback<'_>,
+     volume: &mut f32,
+diff --git a/tools/native-hook-fragments/status_response.json b/tools/native-hook-fragments/status_response.json
+new file mode 100644
+index 000000000..986d90708
+--- /dev/null
++++ b/tools/native-hook-fragments/status_response.json
+@@ -0,0 +1,17 @@
++{
++  "hooks": [
++    {
++      "name": "status_response",
++      "target": "horizon_client_lib::lan::conn::native_status_response",
++      "neoforge": "none (Bukkit's ServerListPingEvent, Paper's PaperServerListPingEvent)",
++      "side": "server",
++      "cancellable": false,
++      "mod_api": {
++        "contract": "listen"
++      }
++    }
++  ],
++  "rust_summary": "a server list ping's answer, its description, player counts and sample editable, on the connection's thread (`native_status_response`).",
++  "doc_summary": "`native_status_response(address, protocol, motd, description, max_players, online, sample)` hears each status request a server answers, on the connection's own thread (Bukkit's `ServerListPingEvent`): set `description` to the text shown instead of the motd, change `max_players` and `online`, and change, add or remove the players in `sample` (empty: left out). What no mod changes is answered as before. No `Game` and no helper there. Bundles need \"hooks\": @API:status_response@.",
++  "comments": ["crates/horizon-client/src/lan/conn.rs"]
++}

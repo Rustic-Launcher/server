@@ -1,0 +1,18 @@
+name: Welcome
+version: 1.2.0
+main: rustictest.welcome.WelcomePlugin
+api-version: '1.21'
+description: Greets players (Rustic Bridge test plugin)
+author: Rustic
+commands:
+  welcome:
+    description: Show or reload the welcome message
+    usage: /<command> [reload]
+    permission: welcome.use
+permissions:
+  welcome.use:
+    description: Use /welcome
+    default: true
+  welcome.reload:
+    description: Reload the configuration
+    default: op

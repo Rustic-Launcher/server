@@ -1,0 +1,20 @@
+# Rustic plugin manifest (format: docs/PLUGIN_FORMAT.md). Validated strictly: unknown keys are
+# errors. Check it any time with `rustic check`.
+[plugin]
+id = "{{id}}"
+name = "{{name}}"
+version = "0.1.0"
+# The plugin API this plugin is built against (MAJOR.MINOR).
+api = "0.1"
+authors = ["{{author}}"]
+license = "MIT OR Apache-2.0"
+# The component inside the package; `rustic build` puts the compiled crate there.
+entry = "{{lib_name}}.wasm"
+description = "{{description}}"
+
+# Everything is denied by default. Ask only for what the plugin needs: admins see this list.
+[capabilities]
+# Preopen the plugin's data folder as "/" (needed to read config.toml).
+filesystem = "data-folder"
+# HTTP from async tasks, to these hosts only: network = ["api.example.com"]
+network = false

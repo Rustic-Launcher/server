@@ -1,0 +1,126 @@
+package rustic:api@0.1.0;
+
+/// What every plugin exports.
+interface plugin {
+    use commands.{command-id, command-context, complete-context};
+    use types.{text};
+    use scheduler.{task-id};
+
+    /// Called once after instantiation, before any other plugin is enabled:
+    /// declare permissions and provided services here.
+    on-load: func() -> result<_, string>;
+    /// Register listeners, commands and tasks here. An error disables the plugin.
+    on-enable: func() -> result<_, string>;
+    /// Called before the plugin is unloaded (disable, reload, shutdown). Its listeners,
+    /// commands, tasks, menus, bars and channels are removed by the host afterwards anyway.
+    on-disable: func();
+    /// A scheduled task fired (main or async instance, as scheduled).
+    run-task: func(task: task-id);
+    /// A job scheduled with `scheduler.run-async-job`, called in the async instance.
+    run-job: func(task: task-id, job: string, payload: list<u8>);
+    /// A command of this plugin ran. An error text is shown to the sender in red.
+    execute-command: func(command: command-id, ctx: command-context) -> result<_, text>;
+    /// Suggestions for an argument declared with `dynamic-suggestions`.
+    complete-command: func(command: command-id, ctx: complete-context) -> list<string>;
+    /// A `scheduler.post-to-main` from this plugin's async instance.
+    on-message: func(topic: string, payload: list<u8>);
+}
+
+/// Event handlers. The host looks these up by name and calls only those for events the plugin
+/// subscribed to; a plugin built against an older 0.x API simply lacks the newer ones.
+/// Each returns the (possibly changed) event; see `event-types` for which fields count.
+interface handlers {
+    use events.{handler-id};
+    use event-types.{
+        player-pre-login, player-join, player-quit, player-chat, player-command, server-command,
+        player-move, player-teleport, player-change-world, block-break, block-place,
+        player-interact, player-interact-entity, entity-damage, player-death, entity-death,
+        player-respawn, inventory-click, inventory-close, player-game-mode-change,
+        server-list-ping, plugin-message, chunk-load, chunk-unload, custom-event,
+    };
+
+    handle-player-pre-login: func(handler: handler-id, event: player-pre-login) -> player-pre-login;
+    handle-player-join: func(handler: handler-id, event: player-join) -> player-join;
+    handle-player-quit: func(handler: handler-id, event: player-quit) -> player-quit;
+    handle-player-chat: func(handler: handler-id, event: player-chat) -> player-chat;
+    handle-player-command: func(handler: handler-id, event: player-command) -> player-command;
+    handle-server-command: func(handler: handler-id, event: server-command) -> server-command;
+    handle-player-move: func(handler: handler-id, event: player-move) -> player-move;
+    handle-player-teleport: func(handler: handler-id, event: player-teleport) -> player-teleport;
+    handle-player-change-world: func(handler: handler-id, event: player-change-world) -> player-change-world;
+    handle-block-break: func(handler: handler-id, event: block-break) -> block-break;
+    handle-block-place: func(handler: handler-id, event: block-place) -> block-place;
+    handle-player-interact: func(handler: handler-id, event: player-interact) -> player-interact;
+    handle-player-interact-entity: func(handler: handler-id, event: player-interact-entity) -> player-interact-entity;
+    handle-entity-damage: func(handler: handler-id, event: entity-damage) -> entity-damage;
+    handle-player-death: func(handler: handler-id, event: player-death) -> player-death;
+    handle-entity-death: func(handler: handler-id, event: entity-death) -> entity-death;
+    handle-player-respawn: func(handler: handler-id, event: player-respawn) -> player-respawn;
+    handle-inventory-click: func(handler: handler-id, event: inventory-click) -> inventory-click;
+    handle-inventory-close: func(handler: handler-id, event: inventory-close) -> inventory-close;
+    handle-player-game-mode-change: func(handler: handler-id, event: player-game-mode-change) -> player-game-mode-change;
+    handle-server-list-ping: func(handler: handler-id, event: server-list-ping) -> server-list-ping;
+    handle-plugin-message: func(handler: handler-id, event: plugin-message) -> plugin-message;
+    handle-chunk-load: func(handler: handler-id, event: chunk-load) -> chunk-load;
+    handle-chunk-unload: func(handler: handler-id, event: chunk-unload) -> chunk-unload;
+    handle-custom-event: func(handler: handler-id, event: custom-event) -> custom-event;
+}
+
+/// The world a Rustic plugin targets. WASI: only `wasi:cli` basics, clocks, random and
+/// `wasi:filesystem` with the plugin's data folder preopened as "/" (capability
+/// `filesystem = "data-folder"`; none otherwise). No sockets.
+world rustic-plugin {
+    import types;
+    import logging;
+    import events;
+    import commands;
+    import scheduler;
+    import permissions;
+    import services;
+    import storage;
+    import http;
+    import server;
+    import players;
+    import inventories;
+    import menus;
+    import worlds;
+    import scoreboards;
+    import bossbars;
+    import tablist;
+    import messaging;
+    /// Standard services, always defined by the host: every call returns
+    /// `err(service-error::no-provider)` while no plugin provides the interface.
+    import rustic:services/economy@0.1.0;
+    import rustic:services/permission-provider@0.1.0;
+    import rustic:services/chat-meta@0.1.0;
+
+    export plugin;
+    export handlers;
+}
+
+// Provider worlds: a plugin that implements a standard service also exports its interface
+// (and declares it with `services.provide`). A plugin targets exactly one world; the SDK picks it
+// with cargo features (`provide-permissions`, `provide-economy`), so a normal plugin's component
+// exports nothing but `plugin` and `handlers`. Importing and exporting the same interface is
+// legal: the import reaches whichever plugin the host selected as provider.
+
+/// A permission engine: exports `permission-provider` and `chat-meta` (prefixes, suffixes).
+world rustic-plugin-permissions {
+    include rustic-plugin;
+    export rustic:services/permission-provider@0.1.0;
+    export rustic:services/chat-meta@0.1.0;
+}
+
+/// An economy: exports `economy`.
+world rustic-plugin-economy {
+    include rustic-plugin;
+    export rustic:services/economy@0.1.0;
+}
+
+/// Both of the above.
+world rustic-plugin-permissions-economy {
+    include rustic-plugin;
+    export rustic:services/permission-provider@0.1.0;
+    export rustic:services/chat-meta@0.1.0;
+    export rustic:services/economy@0.1.0;
+}

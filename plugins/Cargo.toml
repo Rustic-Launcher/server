@@ -1,0 +1,43 @@
+# Official Rustic plugins and test fixtures: WebAssembly components built with
+#   cargo build --manifest-path plugins/Cargo.toml --target wasm32-wasip2 --release
+# This is its own workspace (the root workspace builds native host crates).
+[workspace]
+resolver = "2"
+members = [
+    "hello",
+    "essentials-lite",
+    "chat-format",
+    "menus",
+    "mini-game",
+    "fixtures/noop",
+    "fixtures/buggy",
+    "fixtures/bench",
+]
+# Service-provider plugins are their own workspaces (ADR 0032): the SDK selects a provider world
+# with a cargo feature, and features unify across a workspace. They share `plugins/target`
+# through `plugins/.cargo/config.toml`.
+exclude = [
+    "perms",
+    "essentials-lite/tests/fixtures/economy",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.95"
+publish = false
+
+[workspace.dependencies]
+rustic = { package = "rusticmc-api", path = "../crates/rusticmc-api" }
+serde = { version = "1", features = ["derive"] }
+
+# Plugins ship as small components: optimise for size, link-time optimise, strip symbols.
+# Panics abort (the host turns the trap into "plugin disabled").
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+debug = false

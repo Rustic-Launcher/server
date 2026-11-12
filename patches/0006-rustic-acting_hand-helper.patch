@@ -1,0 +1,55 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: BouBou <69978359+BouBouw@users.noreply.github.com>
+Date: Wed, 11 Nov 2026 03:27:07 +0100
+Subject: [PATCH] rustic: acting_hand helper
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/crates/horizon-client/src/game/native_server.rs b/crates/horizon-client/src/game/native_server.rs
+index a4f9a5307..1da6a88fd 100644
+--- a/crates/horizon-client/src/game/native_server.rs
++++ b/crates/horizon-client/src/game/native_server.rs
+@@ -7,7 +7,7 @@
+ //! player's plain items: count, take, give. They act on the server's own
+ //! players (the hub's: a dedicated server's, a LAN host's, single player's
+ //! server thread's), never on a client's.
+-use super::{Dim, Game, commands::execute, lan::LanHost, lan_actions::GuestCommand};
++use super::{Dim, Game, Hand, commands::execute, lan::LanHost, lan_actions::GuestCommand};
+ // Their old home, for mixin code that names them here.
+ pub(crate) use horizon_client::mod_api::{NativeCommand, NativeServerPlayer};
+ use horizon_client::{
+@@ -841,6 +841,14 @@ impl Game<'_> {
+             None => self.system_message(line),
+         }
+     }
++    /// The hand the acting player (`native_acting_player`) acts with: the one
++    /// whose item `native_block_place`, `native_use_item`, `native_use_item_on`
++    /// and `native_right_click_block` hear (Bukkit's `BlockPlaceEvent.getHand`,
++    /// `PlayerInteractEvent.getHand`). None outside a player's turn. API
++    /// @API:acting_hand@.
++    pub(super) fn native_acting_hand(&self) -> Option<Hand> {
++        self.lan_acting_uuid.map(|_| self.hand)
++    }
+     /// The player whose action or command a hook hears, as their state is
+     /// swapped in (`native_perform_command`, `native_right_click_block`,
+     /// `native_use_item_on`, `native_destroy_block`...): None outside such a
+diff --git a/tools/native-hook-fragments/acting_hand.json b/tools/native-hook-fragments/acting_hand.json
+new file mode 100644
+index 000000000..3ab1f2362
+--- /dev/null
++++ b/tools/native-hook-fragments/acting_hand.json
+@@ -0,0 +1,14 @@
++{
++  "hooks": [],
++  "helpers": [
++    {
++      "name": "acting_hand",
++      "target": "horizon_client::game::native_server::Game<'_>::native_acting_hand"
++    }
++  ],
++  "rust_summary": "the hand the acting player acts with (`native_acting_hand`).",
++  "doc_summary": "`native_acting_hand()` is the hand (`Hand::Main` or `Hand::Off`) whose item the acting player places or uses, for `native_block_place`, `native_use_item` and the other hooks of a player's turn (Bukkit's `BlockPlaceEvent.getHand`); None outside a player's turn. API @API:acting_hand@.",
++  "comments": [
++    "crates/horizon-client/src/game/native_server.rs"
++  ]
++}

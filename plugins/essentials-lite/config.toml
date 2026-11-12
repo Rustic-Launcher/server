@@ -1,0 +1,40 @@
+# essentials-lite configuration. Copied to the data folder on first start; your edits are kept
+# on update (missing keys take the defaults below).
+config_version = 1
+
+# Message language: "en" (English) or "fr" (French).
+lang = "en"
+
+# Seconds a player must stand still before /spawn, /home, /warp, /back or an accepted /tpa
+# teleports them (0 = instant). Bypass: essentials.warmup.bypass.
+teleport_warmup_seconds = 3
+
+# Moving farther than this many blocks from where the warmup started cancels the teleport.
+warmup_cancel_distance = 0.5
+
+# Seconds between two teleports of the same player (0 = no cooldown).
+# Bypass: essentials.cooldown.bypass.
+teleport_cooldown_seconds = 5
+
+# Seconds before a /tpa or /tpahere request expires.
+tpa_timeout_seconds = 60
+
+# Homes every player may set.
+default_max_homes = 1
+
+# Larger limits: a player holding essentials.homes.<n> may set n homes (the largest tier held
+# wins). essentials.homes.unlimited removes the limit.
+home_tiers = [3, 5, 10]
+
+# Price of each new home, in the economy's minor units (100 = 1.00). 0 = free. Only charged when
+# an economy plugin is installed; essentials.sethome.free skips it.
+sethome_cost = 0
+
+# When true, each warp needs essentials.warps.<name> (grant essentials.warps.* for all).
+per_warp_permissions = false
+
+# The /broadcast line; {message} is the announced text (MiniMessage tags allowed).
+broadcast_format = "<dark_gray>[<gold>Broadcast</gold>]</dark_gray> <white>{message}"
+
+# After dying, tell players they can return with /back.
+back_on_death_hint = true

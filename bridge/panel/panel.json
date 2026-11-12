@@ -1,0 +1,1112 @@
+{
+  "generated": "2026-11-09",
+  "note": "Metadata only. Jars are fetched locally into bridge/panel/jars (gitignored) for static analysis and are never committed or redistributed.",
+  "sources": [
+    "https://api.modrinth.com/v2",
+    "https://hangar.papermc.io/api/v1"
+  ],
+  "plugins": [
+    {
+      "name": "AuthMe ReReloaded(Fork)",
+      "slug": "authmerereloaded",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/authmerereloaded",
+      "version": "5.7.0-FORK-b53",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "bukkit",
+        "folia",
+        "paper",
+        "purpur",
+        "spigot"
+      ],
+      "license": "AGPL-3.0-only",
+      "download_url": "https://cdn.modrinth.com/data/3IEZ9vol/versions/oezVemzR/AuthMe-5.7.0-FORK-Universal.jar",
+      "filename": "AuthMe-5.7.0-FORK-Universal.jar",
+      "size": 23107304,
+      "downloads": 286327,
+      "sha256": "0bfb96d93f0b659791df4df2b98b95dc2d6dc1ab211787f0f1bc97a604d6122e",
+      "jar": "authmerereloadedfork--AuthMe-5.7.0-FORK-Universal.jar"
+    },
+    {
+      "name": "Axiom Paper Plugin",
+      "slug": "axiom-paper-plugin",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/axiom-paper-plugin",
+      "version": "6.0.1+26.3",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "paper"
+      ],
+      "license": "MIT",
+      "download_url": "https://cdn.modrinth.com/data/evkiwA7V/versions/V2yAy4up/AxiomPaper-6.0.1-for-MC26.3.jar",
+      "filename": "AxiomPaper-6.0.1-for-MC26.3.jar",
+      "size": 6278921,
+      "downloads": 277458,
+      "sha256": "8f3c478c4c7d5e3e9864cb0c5cc848a6663c06864ea5761edad246eba4f40752",
+      "jar": "axiompaperplugin--AxiomPaper-6.0.1-for-MC26.3.jar"
+    },
+    {
+      "name": "BlueMap",
+      "slug": "bluemap",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/bluemap",
+      "version": "5.29-spigot",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "spigot"
+      ],
+      "license": "MIT",
+      "download_url": "https://cdn.modrinth.com/data/swbUV1cr/versions/wIycjaQ7/bluemap-5.29-spigot.jar",
+      "filename": "bluemap-5.29-spigot.jar",
+      "size": 7141104,
+      "downloads": 564207,
+      "sha256": "8b1fa1d5b86b5db212be1812af904afee90939b57594c849f487b132d5200d29",
+      "jar": "bluemap--bluemap-5.29-spigot.jar"
+    },
+    {
+      "name": "ChestSort",
+      "slug": "chestsort",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/chestsort",
+      "version": "1.1",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "paper",
+        "purpur",
+        "spigot"
+      ],
+      "license": "MIT",
+      "download_url": "https://cdn.modrinth.com/data/LDkz4P10/versions/jOP2uPPT/ChestSort-1.1.jar",
+      "filename": "ChestSort-1.1.jar",
+      "size": 28230,
+      "downloads": 17831,
+      "sha256": "a097881176ec631c4f1af31da3590c86a587fe64fb3657bbb15835e8ae7049ca",
+      "jar": "chestsort--ChestSort-1.1.jar"
+    },
+    {
+      "name": "Chunky",
+      "slug": "chunky",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/chunky",
+      "version": "1.5.66",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "folia",
+        "paper"
+      ],
+      "license": "GPL-3.0-only",
+      "download_url": "https://cdn.modrinth.com/data/fALzjamp/versions/RBuKjN4k/Chunky-Paper-1.5.66.jar",
+      "filename": "Chunky-Paper-1.5.66.jar",
+      "size": 396960,
+      "downloads": 20119912,
+      "sha256": "a2c7877eaacf52605f5d2b08000656fbc43f7bec1eaf6ef9e71b6b9103a9c14f",
+      "jar": "chunky--Chunky-Paper-1.5.66.jar"
+    },
+    {
+      "name": "CommandAPI",
+      "slug": "CommandAPI",
+      "source": "hangar",
+      "project_url": "https://hangar.papermc.io/CommandAPI/CommandAPI",
+      "version": "12.1.0",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "paper"
+      ],
+      "license": "MIT",
+      "download_url": "https://hangarcdn.papermc.io/plugins/CommandAPI/CommandAPI/versions/12.1.0/PAPER/CommandAPI-12.1.0-Paper.jar",
+      "filename": "CommandAPI-12.1.0-Paper.jar",
+      "size": 658788,
+      "downloads": 1649,
+      "sha256": "ab48e55fd06264dd239cf015b501936cb50eb6c38d967fbffca6c91a48064049",
+      "jar": "commandapi--CommandAPI-12.1.0-Paper.jar"
+    },
+    {
+      "name": "CoreProtect",
+      "slug": "coreprotect",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/coreprotect",
+      "version": "24.1",
+      "game_versions_newest": "26.2",
+      "loaders": [
+        "bukkit",
+        "folia",
+        "paper",
+        "purpur",
+        "spigot"
+      ],
+      "license": "Artistic-2.0",
+      "download_url": "https://cdn.modrinth.com/data/Lu3KuzdV/versions/3sehX6Sg/CoreProtect-CE-24.1.jar",
+      "filename": "CoreProtect-CE-24.1.jar",
+      "size": 1113283,
+      "downloads": 589483,
+      "sha256": "a2acef7c06ef201355cef07d591a6055dfed358ad768faaaaaf4e276865ecc97",
+      "jar": "coreprotect--CoreProtect-CE-24.1.jar"
+    },
+    {
+      "name": "CrazyCrates",
+      "slug": "crazycrates",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/crazycrates",
+      "version": "5.2.0",
+      "game_versions_newest": "26.2",
+      "loaders": [
+        "folia",
+        "paper",
+        "purpur"
+      ],
+      "license": "MIT",
+      "download_url": "https://cdn.modrinth.com/data/r3BBZyf3/versions/KIO68I3K/CrazyCrates-5.2.0.jar",
+      "filename": "CrazyCrates-5.2.0.jar",
+      "size": 2272128,
+      "downloads": 331509,
+      "sha256": "11e7560a39b31901244409cb501606f54cdab2c1cfed7d4bd9e5bb84caf89e43",
+      "jar": "crazycrates--CrazyCrates-5.2.0.jar"
+    },
+    {
+      "name": "DeathChest",
+      "slug": "DeathChest",
+      "source": "hangar",
+      "project_url": "https://hangar.papermc.io/CyntrixAlgorithm/DeathChest",
+      "version": "3.0.1",
+      "game_versions_newest": "26.2",
+      "loaders": [
+        "paper"
+      ],
+      "license": "MIT",
+      "download_url": "https://hangarcdn.papermc.io/plugins/CyntrixAlgorithm/DeathChest/versions/3.0.1/PAPER/deathchest.jar",
+      "filename": "deathchest.jar",
+      "size": 266988,
+      "downloads": 19900,
+      "sha256": "a0fbb06857f1d3d8806e477d09bce9a1a716af22e253e43d7ae325110180e191",
+      "jar": "deathchest--deathchest.jar"
+    },
+    {
+      "name": "DecentHolograms",
+      "slug": "decentholograms",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/decentholograms",
+      "version": "2.10.2",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "folia",
+        "paper",
+        "spigot"
+      ],
+      "license": "GPL-3.0-or-later",
+      "download_url": "https://cdn.modrinth.com/data/w02MKsTg/versions/fbE7wARc/DecentHolograms-2.10.2.jar",
+      "filename": "DecentHolograms-2.10.2.jar",
+      "size": 4014227,
+      "downloads": 305364,
+      "sha256": "99bc2b7b0af7846cc45d5800ea0acfae6846d479e048b8e5995c5afa53df27be",
+      "jar": "decentholograms--DecentHolograms-2.10.2.jar"
+    },
+    {
+      "name": "DiscordSRV",
+      "slug": "discordsrv",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/discordsrv",
+      "version": "1.30.5",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "bukkit",
+        "folia",
+        "paper",
+        "purpur",
+        "spigot"
+      ],
+      "license": "GPL-3.0-or-later",
+      "download_url": "https://cdn.modrinth.com/data/UmLGoGij/versions/ATlquwiT/DiscordSRV-Build-1.30.5.jar",
+      "filename": "DiscordSRV-Build-1.30.5.jar",
+      "size": 10653915,
+      "downloads": 545599,
+      "sha256": "ef2fa1f2eb146c7c77412b7190a7dd33f1fc91282683fe45407739554c8aefef",
+      "jar": "discordsrv--DiscordSRV-Build-1.30.5.jar"
+    },
+    {
+      "name": "Dynmap\u00ae",
+      "slug": "dynmap",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/dynmap",
+      "version": "3.5-spigot",
+      "game_versions_newest": "1.19.4",
+      "loaders": [
+        "paper",
+        "spigot"
+      ],
+      "license": "Apache-2.0",
+      "download_url": "https://cdn.modrinth.com/data/fRQREgAc/versions/YsFoYsPV/Dynmap-3.5-spigot.jar",
+      "filename": "Dynmap-3.5-spigot.jar",
+      "size": 10158429,
+      "downloads": 501830,
+      "sha256": "5440c3c4822e0d7dd6c2de5e382f396d03529cd6ac0cee5d68feb04a64a58803",
+      "jar": "dynmap--Dynmap-3.5-spigot.jar"
+    },
+    {
+      "name": "EssentialsX",
+      "slug": "essentialsx",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/essentialsx",
+      "version": "2.22.0",
+      "game_versions_newest": "26.1.2",
+      "loaders": [
+        "bukkit",
+        "paper",
+        "spigot"
+      ],
+      "license": "GPL-3.0-only",
+      "download_url": "https://cdn.modrinth.com/data/hXiIvTyT/versions/nY6VN1XH/EssentialsX-2.22.0.jar",
+      "filename": "EssentialsX-2.22.0.jar",
+      "size": 4861125,
+      "downloads": 923374,
+      "sha256": "bda4685105977fca2e209820a9f0ad24275bd103390a03236f38e59bfdac58e6",
+      "jar": "essentialsx--EssentialsX-2.22.0.jar"
+    },
+    {
+      "name": "FancyHolograms",
+      "slug": "fancyholograms",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/fancyholograms",
+      "version": "2.12.0",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "folia",
+        "paper"
+      ],
+      "license": "MIT",
+      "download_url": "https://cdn.modrinth.com/data/5QNgOj66/versions/dBBdi95S/FancyHolograms-2.12.0.jar",
+      "filename": "FancyHolograms-2.12.0.jar",
+      "size": 1219423,
+      "downloads": 345304,
+      "sha256": "5b94f76132b16898177cdac47f26b0a0d2070e8b3770891ff6624fc404811f56",
+      "jar": "fancyholograms--FancyHolograms-2.12.0.jar"
+    },
+    {
+      "name": "FancyNpcs",
+      "slug": "fancynpcs",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/fancynpcs",
+      "version": "2.12.1",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "folia",
+        "paper"
+      ],
+      "license": "MIT",
+      "download_url": "https://cdn.modrinth.com/data/EeyAn23L/versions/LigxTtVw/FancyNpcs-2.12.1.jar",
+      "filename": "FancyNpcs-2.12.1.jar",
+      "size": 6754124,
+      "downloads": 491098,
+      "sha256": "a3464906d6c797781a29831706ebd5cdfa6d076fa094da2f0e7574b436fb9532",
+      "jar": "fancynpcs--FancyNpcs-2.12.1.jar"
+    },
+    {
+      "name": "FastAsyncWorldEdit",
+      "slug": "fastasyncworldedit",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/fastasyncworldedit",
+      "version": "2.16.2",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "paper"
+      ],
+      "license": "GPL-3.0-only",
+      "download_url": "https://cdn.modrinth.com/data/z4HZZnLr/versions/JOyEqKdC/FastAsyncWorldEdit-Paper-2.16.2.jar",
+      "filename": "FastAsyncWorldEdit-Paper-2.16.2.jar",
+      "size": 15278048,
+      "downloads": 609287,
+      "sha256": "a74219fa660c782c9779e6740867cde395a24d1381dcba6c4f8022e4e9c3f87d",
+      "jar": "fastasyncworldedit--FastAsyncWorldEdit-Paper-2.16.2.jar"
+    },
+    {
+      "name": "Geyser",
+      "slug": "geyser",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/geyser",
+      "version": "2.12.1-b1298",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "paper",
+        "spigot"
+      ],
+      "license": "MIT",
+      "download_url": "https://cdn.modrinth.com/data/wKkoqHrH/versions/8ULpAvCI/Geyser-Spigot.jar",
+      "filename": "Geyser-Spigot.jar",
+      "size": 52209051,
+      "downloads": 1519084,
+      "sha256": "4e5740267f8f7e1c0b5d56213e047cfdba57a93c322ace63c05286a5d486c66c",
+      "jar": "geyser--Geyser-Spigot.jar"
+    },
+    {
+      "name": "GriefPrevention",
+      "slug": "griefprevention",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/griefprevention",
+      "version": "16.18.8",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "bukkit",
+        "paper",
+        "purpur",
+        "spigot"
+      ],
+      "license": "GPL-3.0-only",
+      "download_url": "https://cdn.modrinth.com/data/O4o4mKaq/versions/MtwPHMAS/GriefPrevention.jar",
+      "filename": "GriefPrevention.jar",
+      "size": 384582,
+      "downloads": 233542,
+      "sha256": "83d199575808ddbab49de36990b99ed1e5549a8c4e844a9906ac30e90fe51701",
+      "jar": "griefprevention--GriefPrevention.jar"
+    },
+    {
+      "name": "Grim Anticheat",
+      "slug": "grimac",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/grimac",
+      "version": "2.3.74",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "bukkit",
+        "folia",
+        "paper",
+        "purpur",
+        "spigot"
+      ],
+      "license": "GPL-3.0-or-later",
+      "download_url": "https://cdn.modrinth.com/data/LJNGWSvH/versions/baDrVvfo/grimac-bukkit-2.3.74.jar",
+      "filename": "grimac-bukkit-2.3.74.jar",
+      "size": 13190550,
+      "downloads": 801899,
+      "sha256": "3ac71c0b6ef8ab586c1dd3ab4c0b3254394ef39d048e4985efb2898b9fef628c",
+      "jar": "grimanticheat--grimac-bukkit-2.3.74.jar"
+    },
+    {
+      "name": "GSit",
+      "slug": "GSit",
+      "source": "hangar",
+      "project_url": "https://hangar.papermc.io/Gecolay/GSit",
+      "version": "3.8.0",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "paper"
+      ],
+      "license": "GPL",
+      "download_url": "https://hangarcdn.papermc.io/plugins/Gecolay/GSit/versions/3.8.0/PAPER/GSit-3.8.0.jar",
+      "filename": "GSit-3.8.0.jar",
+      "size": 878711,
+      "downloads": 52016,
+      "sha256": "42483016d0d141d163a2e21519524a273095ef490c277a1785b4faee4936103e",
+      "jar": "gsit--GSit-3.8.0.jar"
+    },
+    {
+      "name": "ImageFrame",
+      "slug": "ImageFrame",
+      "source": "hangar",
+      "project_url": "https://hangar.papermc.io/LOOHP/ImageFrame",
+      "version": "2026.1.5",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "paper"
+      ],
+      "license": "GPL",
+      "download_url": "https://hangarcdn.papermc.io/plugins/LOOHP/ImageFrame/versions/2026.1.5/PAPER/ImageFrame-2026.1.5.0.jar",
+      "filename": "ImageFrame-2026.1.5.0.jar",
+      "size": 4762072,
+      "downloads": 22136,
+      "sha256": "65b5c14eb6bd847f1cc0f4985efa95ab43d2f3e2f67dbaec2ecf3ea327fde9b1",
+      "jar": "imageframe--ImageFrame-2026.1.5.0.jar"
+    },
+    {
+      "name": "Infinite Villager Trading",
+      "slug": "infinite-villager-trading",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/infinite-villager-trading",
+      "version": "2.6.7",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "folia",
+        "paper",
+        "purpur",
+        "spigot"
+      ],
+      "license": "MIT",
+      "download_url": "https://cdn.modrinth.com/data/7pdfxYHV/versions/wHWkSAS3/instantrestock_2.6.7.jar",
+      "filename": "instantrestock_2.6.7.jar",
+      "size": 1512108,
+      "downloads": 393320,
+      "sha256": "963d2c67b350dce1bdfc40499ab43845f9ce94d770a18c2f10baa91eb428a56d",
+      "jar": "infinitevillagertrading--instantrestock_2.6.7.jar"
+    },
+    {
+      "name": "InvSee++",
+      "slug": "invsee-plus-plus",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/invsee-plus-plus",
+      "version": "0.31.22",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "bukkit",
+        "paper",
+        "purpur",
+        "spigot"
+      ],
+      "license": "LGPL-2.1-only",
+      "download_url": "https://cdn.modrinth.com/data/bYazc7fd/versions/LmdQx1rG/InvSee%2B%2B.jar",
+      "filename": "InvSee++.jar",
+      "size": 2355501,
+      "downloads": 380786,
+      "sha256": "01f3e053a814f76d46513ebf65a38747df11df81c577d12bed108b353d7775f9",
+      "jar": "invsee--InvSee++.jar"
+    },
+    {
+      "name": "LagFixer",
+      "slug": "lagfixer",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/lagfixer",
+      "version": "1.7.2",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "bukkit",
+        "paper",
+        "purpur",
+        "spigot"
+      ],
+      "license": "GPL-3.0-or-later",
+      "download_url": "https://cdn.modrinth.com/data/fD1X4Kwd/versions/HgUPBmbu/LagFixer-1.7.2.jar",
+      "filename": "LagFixer-1.7.2.jar",
+      "size": 2003154,
+      "downloads": 343607,
+      "sha256": "a126f7542db2e84ed6678ac4f447424e677934249b6a65bc048542b43bdbece1",
+      "jar": "lagfixer--LagFixer-1.7.2.jar"
+    },
+    {
+      "name": "LifeStealZ",
+      "slug": "lifestealz",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/lifestealz",
+      "version": "2.21.1",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "paper",
+        "purpur"
+      ],
+      "license": "GPL-3.0-only",
+      "download_url": "https://cdn.modrinth.com/data/l8Uv7FzS/versions/DqixaESV/lifestealz-2.21.1.jar",
+      "filename": "lifestealz-2.21.1.jar",
+      "size": 1555504,
+      "downloads": 435115,
+      "sha256": "c4d466f579ec91ef3dd51c01fbdcab3aa8cf98009489c229abe4c823a4dbaea1",
+      "jar": "lifestealz--lifestealz-2.21.1.jar"
+    },
+    {
+      "name": "LuckPerms",
+      "slug": "luckperms",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/luckperms",
+      "version": "v5.5.71-bukkit",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "bukkit",
+        "folia",
+        "paper",
+        "spigot"
+      ],
+      "license": "MIT",
+      "download_url": "https://cdn.modrinth.com/data/Vebnzrzj/versions/b0mk8uS6/LuckPerms-Bukkit-5.5.71.jar",
+      "filename": "LuckPerms-Bukkit-5.5.71.jar",
+      "size": 1501521,
+      "downloads": 3040621,
+      "sha256": "49cecb66fa1fd22a133039a490e9c1e5095a238e7cd66eb9d2a16fe6c897550d",
+      "jar": "luckperms--LuckPerms-Bukkit-5.5.71.jar"
+    },
+    {
+      "name": "Maintenance",
+      "slug": "maintenance",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/maintenance",
+      "version": "5.1.1",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "folia",
+        "paper"
+      ],
+      "license": "GPL-3.0-only",
+      "download_url": "https://cdn.modrinth.com/data/VCAqN1ln/versions/n4mZg8uE/Maintenance-Paper-5.1.1.jar",
+      "filename": "Maintenance-Paper-5.1.1.jar",
+      "size": 235953,
+      "downloads": 140874,
+      "sha256": "56dd1df8ac6b807c246f0611e54a04b5efb1c8489390ca4d8aa559a775dbee12",
+      "jar": "maintenance--Maintenance-Paper-5.1.1.jar"
+    },
+    {
+      "name": "MiniMOTD",
+      "slug": "MiniMOTD",
+      "source": "hangar",
+      "project_url": "https://hangar.papermc.io/jmp/MiniMOTD",
+      "version": "2.2.5",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "paper"
+      ],
+      "license": "MIT",
+      "download_url": "https://hangarcdn.papermc.io/plugins/jmp/MiniMOTD/versions/2.2.5/PAPER/minimotd-paper-2.2.5.jar",
+      "filename": "minimotd-paper-2.2.5.jar",
+      "size": 758777,
+      "downloads": 23191,
+      "sha256": "a1f5bff3abf4c9c90bd4417ce26612e621c83a1564f3fc7aa39848996cbea6c6",
+      "jar": "minimotd--minimotd-paper-2.2.5.jar"
+    },
+    {
+      "name": "Multiverse-Core",
+      "slug": "multiverse-core",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/multiverse-core",
+      "version": "5.8.2",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "bukkit",
+        "paper",
+        "purpur",
+        "spigot"
+      ],
+      "license": "BSD-3-Clause",
+      "download_url": "https://cdn.modrinth.com/data/3wmN97b8/versions/de7TbcZG/multiverse-core-5.8.2.jar",
+      "filename": "multiverse-core-5.8.2.jar",
+      "size": 4631727,
+      "downloads": 893942,
+      "sha256": "792252b6bbcf17c94ab8385e595281c830d7a40c946aea1832d8a010702bb630",
+      "jar": "multiversecore--multiverse-core-5.8.2.jar"
+    },
+    {
+      "name": "Multiverse-Inventories",
+      "slug": "multiverse-inventories",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/multiverse-inventories",
+      "version": "5.3.6",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "bukkit",
+        "paper",
+        "purpur",
+        "spigot"
+      ],
+      "license": "BSD-3-Clause",
+      "download_url": "https://cdn.modrinth.com/data/qvdtDX3s/versions/86s1EwyC/multiverse-inventories-5.3.6.jar",
+      "filename": "multiverse-inventories-5.3.6.jar",
+      "size": 1805118,
+      "downloads": 290057,
+      "sha256": "6e58e89009283f4be8658abe2b7e46c482010ceccf3c8e0b0e8ca6a0a114ff92",
+      "jar": "multiverseinventories--multiverse-inventories-5.3.6.jar"
+    },
+    {
+      "name": "Multiverse-Portals",
+      "slug": "multiverse-portals",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/multiverse-portals",
+      "version": "5.3.0",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "bukkit",
+        "paper",
+        "purpur",
+        "spigot"
+      ],
+      "license": "BSD-3-Clause",
+      "download_url": "https://cdn.modrinth.com/data/8VMk6P0I/versions/otf0vOqh/multiverse-portals-5.3.0.jar",
+      "filename": "multiverse-portals-5.3.0.jar",
+      "size": 189730,
+      "downloads": 161577,
+      "sha256": "345f0f296bb54e1fd98494260f93fb1ab97ba92f8ad7f6bfba129ea90021ea8d",
+      "jar": "multiverseportals--multiverse-portals-5.3.0.jar"
+    },
+    {
+      "name": "NBT-API",
+      "slug": "nbtapi",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/nbtapi",
+      "version": "2.16.1",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "bukkit",
+        "folia",
+        "paper",
+        "purpur",
+        "spigot"
+      ],
+      "license": "MIT",
+      "download_url": "https://cdn.modrinth.com/data/nfGCP9fk/versions/h7feK39u/item-nbt-api-plugin-2.16.1.jar",
+      "filename": "item-nbt-api-plugin-2.16.1.jar",
+      "size": 268496,
+      "downloads": 356459,
+      "sha256": "c571502e768640c7cff10c49b3eef904ccf3fd95bd81803913abfe43cfc09746",
+      "jar": "nbtapi--item-nbt-api-plugin-2.16.1.jar"
+    },
+    {
+      "name": "NightCore",
+      "slug": "nightcore",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/nightcore",
+      "version": "2.16.7",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "folia",
+        "paper",
+        "purpur",
+        "spigot"
+      ],
+      "license": "GPL-3.0-only",
+      "download_url": "https://cdn.modrinth.com/data/Y4NRwMW5/versions/HwbIRRCo/nightcore-2.16.7.jar",
+      "filename": "nightcore-2.16.7.jar",
+      "size": 1581781,
+      "downloads": 275763,
+      "sha256": "645c643635ef0add0e38fa82cf6609a2350b5ea28e257ab2fc93a017864bc301",
+      "jar": "nightcore--nightcore-2.16.7.jar"
+    },
+    {
+      "name": "PacketEvents",
+      "slug": "packetevents",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/packetevents",
+      "version": "2.14.0+spigot",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "bukkit",
+        "folia",
+        "paper",
+        "purpur",
+        "spigot"
+      ],
+      "license": "GPL-3.0-only",
+      "download_url": "https://cdn.modrinth.com/data/HYKaKraK/versions/m78nFxYg/packetevents-spigot-2.14.0.jar",
+      "filename": "packetevents-spigot-2.14.0.jar",
+      "size": 5723413,
+      "downloads": 919841,
+      "sha256": "060087c58ec268eae7dd0eb1f17ac3bea1eaadda1693414141ff64e506091bd7",
+      "jar": "packetevents--packetevents-spigot-2.14.0.jar"
+    },
+    {
+      "name": "PlaceholderAPI",
+      "slug": "PlaceholderAPI",
+      "source": "hangar",
+      "project_url": "https://hangar.papermc.io/HelpChat/PlaceholderAPI",
+      "version": "2.12.3",
+      "game_versions_newest": "26.2",
+      "loaders": [
+        "paper"
+      ],
+      "license": "GPL",
+      "download_url": "https://hangarcdn.papermc.io/plugins/HelpChat/PlaceholderAPI/versions/2.12.3/PAPER/PlaceholderAPI-2.12.3.jar",
+      "filename": "PlaceholderAPI-2.12.3.jar",
+      "size": 1160690,
+      "downloads": 25424,
+      "sha256": "fde03259f5af6938f3c33eeb4d814000a1adabf1d2304ce14970be81f609a437",
+      "jar": "placeholderapi--PlaceholderAPI-2.12.3.jar"
+    },
+    {
+      "name": "Plan | Player Analytics",
+      "slug": "plan",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/plan",
+      "version": "5.8+build.3638",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "bukkit",
+        "bungeecord",
+        "folia",
+        "paper",
+        "purpur",
+        "spigot",
+        "sponge",
+        "velocity",
+        "waterfall"
+      ],
+      "license": "LGPL-3.0-or-later",
+      "download_url": "https://cdn.modrinth.com/data/wJQfHhxh/versions/h1A8YZWx/Plan-5.8-build-3638.jar",
+      "filename": "Plan-5.8-build-3638.jar",
+      "size": 18294836,
+      "downloads": 55345,
+      "sha256": "0804b0053205f807c85cd3c4f59f07a54afb81c6ff563dd24915e3a955612c8c",
+      "jar": "planplayeranalytics--Plan-5.8-build-3638.jar"
+    },
+    {
+      "name": "PlayerKits 2",
+      "slug": "playerkits-2",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/playerkits-2",
+      "version": "1.24.2",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "paper",
+        "purpur",
+        "spigot"
+      ],
+      "license": "MIT",
+      "download_url": "https://cdn.modrinth.com/data/VuKoQN3Q/versions/6XVXzK5x/PlayerKits2-1.24.2.jar",
+      "filename": "PlayerKits2-1.24.2.jar",
+      "size": 493678,
+      "downloads": 338628,
+      "sha256": "38c4117aa18a792c1efc420dcef50a080fbd9b3a1def352559dde6780d1e294f",
+      "jar": "playerkits2--PlayerKits2-1.24.2.jar"
+    },
+    {
+      "name": "PluginPortal",
+      "slug": "PluginPortal",
+      "source": "hangar",
+      "project_url": "https://hangar.papermc.io/Flyte/PluginPortal",
+      "version": "3.8.7",
+      "game_versions_newest": "26.2",
+      "loaders": [
+        "paper"
+      ],
+      "license": "Unspecified",
+      "download_url": "https://hangarcdn.papermc.io/plugins/Flyte/PluginPortal/versions/3.8.7/PAPER/PluginPortal-3.8.7.jar",
+      "filename": "PluginPortal-3.8.7.jar",
+      "size": 5775799,
+      "downloads": 23100,
+      "sha256": "b2ef92b7c94771e01c7569879fc1fae970f075556aa49b3e73ac20fd9d5b32cf",
+      "jar": "pluginportal--PluginPortal-3.8.7.jar"
+    },
+    {
+      "name": "PowerRanks",
+      "slug": "powerranks",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/powerranks",
+      "version": "1.10.10",
+      "game_versions_newest": "1.21.1",
+      "loaders": [
+        "paper",
+        "purpur",
+        "spigot"
+      ],
+      "license": "MIT",
+      "download_url": "https://cdn.modrinth.com/data/ecVvYtj3/versions/zjQoKxad/PowerRanks.jar",
+      "filename": "PowerRanks.jar",
+      "size": 4931540,
+      "downloads": 266920,
+      "sha256": "cf6c473e8987e054984b5b19aff30bd2060079c5c30f7c4d8fc9fc64a872dae4",
+      "jar": "powerranks--PowerRanks.jar"
+    },
+    {
+      "name": "ProtocolLib",
+      "slug": "ProtocolLib",
+      "source": "hangar",
+      "project_url": "https://hangar.papermc.io/dmulloy2/ProtocolLib",
+      "version": "5.1.0",
+      "game_versions_newest": "1.20.1",
+      "loaders": [
+        "paper"
+      ],
+      "license": "GPL",
+      "download_url": "https://hangarcdn.papermc.io/plugins/dmulloy2/ProtocolLib/versions/5.1.0/PAPER/ProtocolLib.jar",
+      "filename": "ProtocolLib.jar",
+      "size": 5219955,
+      "downloads": 28027,
+      "sha256": "562c3ef79391e25f71b23359adb6becae7bcee36b0dfe2621b2c679013116769",
+      "jar": "protocollib--ProtocolLib.jar"
+    },
+    {
+      "name": "SetHome",
+      "slug": "sethome",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/sethome",
+      "version": "6.3",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "paper",
+        "purpur"
+      ],
+      "license": "MIT",
+      "download_url": "https://cdn.modrinth.com/data/1apsbntF/versions/O0IwFbmQ/sethome-6.3-SNAPSHOT.jar",
+      "filename": "sethome-6.3-SNAPSHOT.jar",
+      "size": 26113,
+      "downloads": 340717,
+      "sha256": "6c5fc74bd328d428ed653255b77ac2f1c0e6506d528ed39b8140723e9d6c7e0c",
+      "jar": "sethome--sethome-6.3-SNAPSHOT.jar"
+    },
+    {
+      "name": "Simple Voice Chat",
+      "slug": "simple-voice-chat",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/simple-voice-chat",
+      "version": "bukkit-2.6.25",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "bukkit",
+        "folia",
+        "paper",
+        "purpur",
+        "spigot"
+      ],
+      "license": "LicenseRef-All-Rights-Reserved",
+      "download_url": "https://cdn.modrinth.com/data/9eGKb6K1/versions/5OqsnSs7/voicechat-bukkit-2.6.25.jar",
+      "filename": "voicechat-bukkit-2.6.25.jar",
+      "size": 939410,
+      "downloads": 76233296,
+      "sha256": "f39f2e840873aa08e0ccec733fdc824ed4c3b9282e027fd6f18a79006eebad20",
+      "jar": "simplevoicechat--voicechat-bukkit-2.6.25.jar"
+    },
+    {
+      "name": "SkBee",
+      "slug": "skbee",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/skbee",
+      "version": "3.26.0",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "paper"
+      ],
+      "license": "GPL-3.0-only",
+      "download_url": "https://cdn.modrinth.com/data/a0tlbHZO/versions/FUHfTDWo/SkBee-3.26.0.jar",
+      "filename": "SkBee-3.26.0.jar",
+      "size": 2597819,
+      "downloads": 278879,
+      "sha256": "68c0bc5a98478ffe16ad08e179bdf3825bbb4efcc4c68bfe81345e28b79ed4a2",
+      "jar": "skbee--SkBee-3.26.0.jar"
+    },
+    {
+      "name": "SkinsRestorer",
+      "slug": "skinsrestorer",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/skinsrestorer",
+      "version": "15.12.6",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "bukkit",
+        "bungeecord",
+        "folia",
+        "paper",
+        "purpur",
+        "spigot",
+        "velocity",
+        "waterfall"
+      ],
+      "license": "GPL-3.0-only",
+      "download_url": "https://cdn.modrinth.com/data/TsLS8Py5/versions/ziIzW16f/SkinsRestorer.jar",
+      "filename": "SkinsRestorer.jar",
+      "size": 8016648,
+      "downloads": 1796582,
+      "sha256": "a85b4a370f988741c9a38f4d0498262edacbf3220314790ac1c127461996359c",
+      "jar": "skinsrestorer--SkinsRestorer.jar"
+    },
+    {
+      "name": "Skript",
+      "slug": "skript",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/skript",
+      "version": "2.17.1",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "paper"
+      ],
+      "license": "GPL-3.0-or-later",
+      "download_url": "https://cdn.modrinth.com/data/xFNYAvMk/versions/md6XoYzV/Skript-2.17.1.jar",
+      "filename": "Skript-2.17.1.jar",
+      "size": 5472448,
+      "downloads": 283694,
+      "sha256": "ed91e01f4cac55e1349577d36bdd6d536fe5a02291aebbdcfe54b273505c2000",
+      "jar": "skript--Skript-2.17.1.jar"
+    },
+    {
+      "name": "squaremap",
+      "slug": "squaremap",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/squaremap",
+      "version": "1.4.3",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "folia",
+        "paper"
+      ],
+      "license": "MIT",
+      "download_url": "https://cdn.modrinth.com/data/PFb7ZqK6/versions/6wmZVQBO/squaremap-paper-mc26.3-1.4.3.jar",
+      "filename": "squaremap-paper-mc26.3-1.4.3.jar",
+      "size": 8180176,
+      "downloads": 181884,
+      "sha256": "d13331799cd5ace6c02b7e625eda40f0fb69c4f89c3778324758bf6f25f49f08",
+      "jar": "squaremap--squaremap-paper-mc26.3-1.4.3.jar"
+    },
+    {
+      "name": "TAB",
+      "slug": "tab-was-taken",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/tab-was-taken",
+      "version": "6.2.1",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "bukkit",
+        "bungeecord",
+        "fabric",
+        "folia",
+        "forge",
+        "neoforge",
+        "paper",
+        "purpur",
+        "quilt",
+        "spigot",
+        "velocity",
+        "waterfall"
+      ],
+      "license": "Apache-2.0",
+      "download_url": "https://cdn.modrinth.com/data/gG7VFbG0/versions/HlsRTW5F/TAB%20v6.2.1.jar",
+      "filename": "TAB v6.2.1.jar",
+      "size": 8483627,
+      "downloads": 1346584,
+      "sha256": "0b6a21af6fd3b113c05821daaed00ff92234a84ca94b29b3aec0ef1bd313b8a9",
+      "jar": "tab--TAB_v6.2.1.jar"
+    },
+    {
+      "name": "TabTPS",
+      "slug": "TabTPS",
+      "source": "hangar",
+      "project_url": "https://hangar.papermc.io/jmp/TabTPS",
+      "version": "1.4.3",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "paper"
+      ],
+      "license": "MIT",
+      "download_url": "https://hangarcdn.papermc.io/plugins/jmp/TabTPS/versions/1.4.3/PAPER/tabtps-paper-1.4.3.jar",
+      "filename": "tabtps-paper-1.4.3.jar",
+      "size": 3330101,
+      "downloads": 31649,
+      "sha256": "48b7e614867168c14b556ada5e63367eea459bcbe27b93d74bbc8f6cb1d34d44",
+      "jar": "tabtps--tabtps-paper-1.4.3.jar"
+    },
+    {
+      "name": "ToolStats",
+      "slug": "ToolStats",
+      "source": "hangar",
+      "project_url": "https://hangar.papermc.io/hyperdefined/ToolStats",
+      "version": "2.0.7",
+      "game_versions_newest": "26.2",
+      "loaders": [
+        "paper"
+      ],
+      "license": "GPL",
+      "download_url": "https://hangarcdn.papermc.io/plugins/hyperdefined/ToolStats/versions/2.0.7/PAPER/toolstats-2.0.7.jar",
+      "filename": "toolstats-2.0.7.jar",
+      "size": 152346,
+      "downloads": 21417,
+      "sha256": "922fc73e448fa1fefd0935687d740918e6e09a46b7cff4ec20adf39de7dabae7",
+      "jar": "toolstats--toolstats-2.0.7.jar"
+    },
+    {
+      "name": "VaultUnlocked",
+      "slug": "vaultunlocked",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/vaultunlocked",
+      "version": "2.20.3",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "bukkit",
+        "folia",
+        "paper",
+        "purpur",
+        "spigot"
+      ],
+      "license": "LGPL-3.0-or-later",
+      "download_url": "https://cdn.modrinth.com/data/ayRaM8J7/versions/qZgRzoYs/VaultUnlocked-2.20.3.jar",
+      "filename": "VaultUnlocked-2.20.3.jar",
+      "size": 134932,
+      "downloads": 182051,
+      "sha256": "fbc6651aca11e13376c115df66eeffa79592e79517be398299aa6beb49c22695",
+      "jar": "vaultunlocked--VaultUnlocked-2.20.3.jar"
+    },
+    {
+      "name": "ViaBackwards",
+      "slug": "ViaBackwards",
+      "source": "hangar",
+      "project_url": "https://hangar.papermc.io/ViaVersion/ViaBackwards",
+      "version": "5.12.2",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "paper"
+      ],
+      "license": "GPL",
+      "download_url": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.2/PAPER/ViaBackwards-5.12.2.jar",
+      "filename": "ViaBackwards-5.12.2.jar",
+      "size": 1439641,
+      "downloads": 769612,
+      "sha256": "e989440e0aad7e12d4685d7a57df854691b67660966a95ec0450e20ce98e87ab",
+      "jar": "viabackwards--ViaBackwards-5.12.2.jar"
+    },
+    {
+      "name": "ViaRewind",
+      "slug": "ViaRewind",
+      "source": "hangar",
+      "project_url": "https://hangar.papermc.io/ViaVersion/ViaRewind",
+      "version": "4.2.0",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "paper"
+      ],
+      "license": "GPL",
+      "download_url": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaRewind/versions/4.2.0/PAPER/ViaRewind-4.2.0.jar",
+      "filename": "ViaRewind-4.2.0.jar",
+      "size": 408809,
+      "downloads": 252908,
+      "sha256": "f5113ea939353fec6170e6d1b7d2326fab76fa8d0cee594f689796995fc96720",
+      "jar": "viarewind--ViaRewind-4.2.0.jar"
+    },
+    {
+      "name": "ViaVersion",
+      "slug": "ViaVersion",
+      "source": "hangar",
+      "project_url": "https://hangar.papermc.io/ViaVersion/ViaVersion",
+      "version": "5.12.2",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "paper"
+      ],
+      "license": "GPL",
+      "download_url": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaVersion/versions/5.12.2/PAPER/ViaVersion-5.12.2.jar",
+      "filename": "ViaVersion-5.12.2.jar",
+      "size": 6508809,
+      "downloads": 528240,
+      "sha256": "c0b63badcb0f7d38f4443e06820f2b8142dd4f0d3b0511f9330ff1050430e6b2",
+      "jar": "viaversion--ViaVersion-5.12.2.jar"
+    },
+    {
+      "name": "WorldEdit",
+      "slug": "worldedit",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/worldedit",
+      "version": "7.4.6",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "bukkit",
+        "folia",
+        "paper",
+        "spigot"
+      ],
+      "license": "GPL-3.0-only",
+      "download_url": "https://cdn.modrinth.com/data/1u6JkXh5/versions/YFnqiUlL/worldedit-bukkit-7.4.6.jar",
+      "filename": "worldedit-bukkit-7.4.6.jar",
+      "size": 7870216,
+      "downloads": 11818587,
+      "sha256": "e0ce67d870ad1fef8a40dd9d7926360caf3bb44722438545d6b20b55f82a0c91",
+      "jar": "worldedit--worldedit-bukkit-7.4.6.jar"
+    },
+    {
+      "name": "WorldGuard",
+      "slug": "worldguard",
+      "source": "modrinth",
+      "project_url": "https://modrinth.com/plugin/worldguard",
+      "version": "7.0.21",
+      "game_versions_newest": "26.3",
+      "loaders": [
+        "bukkit",
+        "folia",
+        "paper",
+        "spigot"
+      ],
+      "license": "LGPL-3.0-only",
+      "download_url": "https://cdn.modrinth.com/data/DKY9btbd/versions/fiHLM6oY/worldguard-bukkit-7.0.21.jar",
+      "filename": "worldguard-bukkit-7.0.21.jar",
+      "size": 1200393,
+      "downloads": 996926,
+      "sha256": "070223c535629f3f5d15f002388c1e3ae615a5f4ba051e7ccfb5d716540547a9",
+      "jar": "worldguard--worldguard-bukkit-7.0.21.jar"
+    }
+  ]
+}

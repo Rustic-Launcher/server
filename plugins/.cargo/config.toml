@@ -1,0 +1,7 @@
+# One target directory for every crate under plugins/: the plugins workspace and the standalone
+# service-provider workspaces (perms, test fixtures; ADR 0032). The path is relative to plugins/.
+# Cargo reads this file from the current directory upwards, so it applies to commands run from
+# inside plugins/; from the repository root add CARGO_TARGET_DIR=plugins/target (the `rustic`
+# CLI runs cargo from the plugin's directory, so `rustic build/check plugins/<id>` works from anywhere).
+[build]
+target-dir = "target"

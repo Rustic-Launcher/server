@@ -1,0 +1,84 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: BouBou <69978359+BouBouw@users.noreply.github.com>
+Date: Wed, 11 Nov 2026 04:17:57 +0100
+Subject: [PATCH] rustic: block_state_name helper names a block state id
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/crates/horizon-client/src/game/lan.rs b/crates/horizon-client/src/game/lan.rs
+index 52d97b1ed..95d923465 100644
+--- a/crates/horizon-client/src/game/lan.rs
++++ b/crates/horizon-client/src/game/lan.rs
+@@ -4461,6 +4461,20 @@ mod world_spawn_sync_tests {
+         assert_eq!(game.native_world_spawn().unwrap().0, [100, 140, -20]);
+     }
+ 
++    /// A state id a hook hands over is named as `/setblock` takes it, as a position's state is.
++    #[test]
++    #[ignore = "needs prepared resources and scratch homes/cwd"]
++    fn a_block_state_id_is_named_as_setblock_takes_it() {
++        let game = super::super::native_machines::tests::server_game();
++        let stairs = game.native_default_state("minecraft:oak_stairs").unwrap();
++        let name = game.native_block_state_name(stairs).unwrap();
++        assert!(name.starts_with("minecraft:oak_stairs[facing="), "{name}");
++        let stone = game.native_default_state("minecraft:stone").unwrap();
++        assert_eq!(game.native_block_state_name(stone).as_deref(), Some("minecraft:stone"));
++        let unknown = horizon_world::registry::BlockStateId(60_000);
++        assert_eq!(game.native_block_state_name(unknown), None);
++    }
++
+     #[test]
+     #[ignore = "needs prepared resources and scratch homes/cwd"]
+     fn join_and_respawn_contexts_use_world_spawn_not_a_personal_spawn() {
+diff --git a/crates/horizon-client/src/game/native_level_refs.rs b/crates/horizon-client/src/game/native_level_refs.rs
+index 6e4214fd0..bd4f86ef8 100644
+--- a/crates/horizon-client/src/game/native_level_refs.rs
++++ b/crates/horizon-client/src/game/native_level_refs.rs
+@@ -4,7 +4,7 @@
+ //! `None` (or `false`) on a client, for a handle of an earlier open, or for a
+ //! block in a chunk that isn't loaded.
+ use super::Game;
+-use horizon_client::mod_api::LevelRef;
++use horizon_client::mod_api::{BlockStateId, LevelRef};
+ use horizon_client::world::World;
+ 
+ impl Game<'_> {
+@@ -46,6 +46,18 @@ impl Game<'_> {
+         self.native_level_state(level, pos)
+             .map(|state| self.state_string(state))
+     }
++    /// Block state `state` as `/setblock` takes it, as `level_block_state` names
++    /// the state of a position: for the `BlockStateId`s hooks hand over
++    /// (`native_block_place`'s state before it is set, `native_destroy_block`'s,
++    /// `NativeLootDrops.block`'s). None for an id the server's registry
++    /// doesn't have. API @API:block_state_name@.
++    pub(super) fn native_block_state_name(
++        &self,
++        state: BlockStateId,
++    ) -> Option<String> {
++        self.pack.assets.registry.state(state)?;
++        Some(self.state_string(state))
++    }
+     /// The block at `pos` without its properties: `minecraft:oak_stairs`.
+     /// None as for `block_state`. API 381.
+     pub(super) fn native_level_block(&self, level: LevelRef, pos: [i32; 3]) -> Option<String> {
+diff --git a/tools/native-hook-fragments/block_state_name.json b/tools/native-hook-fragments/block_state_name.json
+new file mode 100644
+index 000000000..414289a54
+--- /dev/null
++++ b/tools/native-hook-fragments/block_state_name.json
+@@ -0,0 +1,14 @@
++{
++  "hooks": [],
++  "helpers": [
++    {
++      "name": "block_state_name",
++      "target": "horizon_client::game::native_level_refs::Game<'_>::native_block_state_name"
++    }
++  ],
++  "rust_summary": "the name of a block state id, as `/setblock` takes it (`native_block_state_name`).",
++  "doc_summary": "`native_block_state_name(state)` names a `BlockStateId` a hook hands over (`block_place`'s, `destroy_block`'s, a loot context's block) as `/setblock` takes it, `minecraft:oak_stairs[facing=east,...]`, as `level_block_state` names a position's state. API @API:block_state_name@.",
++  "comments": [
++    "crates/horizon-client/src/game/native_level_refs.rs"
++  ]
++}

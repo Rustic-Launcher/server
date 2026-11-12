@@ -1,0 +1,27 @@
+name: RusticCommands
+version: 0.3.1
+main: rustictest.commands.CommandsPlugin
+api-version: '1.21'
+description: /heal, /fly and /broadcast (Rustic Bridge test plugin)
+authors: [Rustic]
+commands:
+  heal:
+    description: Heal yourself or another player
+    usage: /<command> [player]
+    permission: rusticcmd.heal
+  fly:
+    description: Toggle flight
+    usage: /<command> [player]
+    permission: rusticcmd.fly
+  broadcast:
+    description: Broadcast a message after a countdown
+    usage: /<command> <message...>
+    aliases: [bc]
+    permission: rusticcmd.broadcast
+permissions:
+  rusticcmd.heal:
+    default: op
+  rusticcmd.fly:
+    default: op
+  rusticcmd.broadcast:
+    default: op
