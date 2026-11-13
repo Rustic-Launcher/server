@@ -1,5 +1,7 @@
 # Rustic
 
+> **Rustic is a social game platform, powered by the Horizon engine** <img src="https://raw.githubusercontent.com/horizon-rust/horizon/main/docs/media/logo.png" alt="Horizon" width="16" height="16">
+
 **A plugin platform for [Horizon](https://github.com/horizon-rust/horizon) servers**: what Bukkit,
 Spigot and Paper are to the Java server, rebuilt for Horizon's Rust server with sandboxed
 WebAssembly plugins.
