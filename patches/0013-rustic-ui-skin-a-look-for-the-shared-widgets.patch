@@ -1,0 +1,412 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: BouBou <69978359+BouBouw@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 07:00:00 +0100
+Subject: [PATCH] rustic: ui skin, a look for the shared widgets
+
+An executable may install one widget skin (horizon_client_render::ui::skin):
+ui::nine_slice, ui::blit_sprite, ui::tiled(_sized) and HudBatch::sprite_scaled ask
+it before drawing a GUI sprite, ui::scrolling_text_around_at and ui::centered_text
+before setting a label, and the title's own buttons too; Game::hud calls
+Skin::begin with the frame's atlas. With no skin nothing changes. Rustic ADR 0013, U15.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/horizon-client-render/src/hud.rs     |   4 +
+ crates/horizon-client-render/src/ui.rs      |  35 ++++
+ crates/horizon-client-render/src/ui/skin.rs | 256 ++++++++++++++++++++++++++++
+ crates/horizon-client/src/game.rs           |   2 +
+ crates/horizon-client/src/title.rs          |   7 +-
+ 5 files changed, 302 insertions(+), 2 deletions(-)
+
+diff --git a/crates/horizon-client-render/src/hud.rs b/crates/horizon-client-render/src/hud.rs
+index d731b7453928abb77f7322aeba6b2fa16fc642c0..6920f8385ac2f05e19817cc5004722e16546ae78 100644
+--- a/crates/horizon-client-render/src/hud.rs
++++ b/crates/horizon-client-render/src/hud.rs
+@@ -1961,6 +1961,10 @@ impl HudBatch {
+         h: f32,
+         color: u32,
+     ) {
++        // Widget sprites drawn whole (check boxes, a station's buttons) go to the skin too.
++        if crate::ui::skin::sprite(self, atlas, name, [x, y, w, h], color) {
++            return;
++        }
+         if let Some(r) = atlas.sprites.get(name).copied() {
+             self.rect_uv(x, y, w, h, r, color);
+         }
+diff --git a/crates/horizon-client-render/src/ui.rs b/crates/horizon-client-render/src/ui.rs
+index bc7bec6d5fbff5dc5bb25bf424c72b68be847ce8..ac308110386e9caaff9c0440ae2bab85a6bd375e 100644
+--- a/crates/horizon-client-render/src/ui.rs
++++ b/crates/horizon-client-render/src/ui.rs
+@@ -12,6 +12,8 @@ use std::{
+     time::Instant,
+ };
+ 
++pub mod skin;
++
+ /// `GuiSpriteScaling.NineSlice`: the sprite's size in GUI pixels, whatever
+ /// its texture's resolution, its borders (left, top, right, bottom) in the
+ /// same units, and whether the edges and centre stretch rather than tile.
+@@ -200,6 +202,9 @@ pub fn nine_slice(
+     h: f32,
+     color: u32,
+ ) {
++    if skin::sprite(batch, atlas, sprite, [x, y, w, h], color) {
++        return;
++    }
+     if let Some(r) = atlas.sprites.get(sprite) {
+         match crate::hud::sprite_modifiers::draws(atlas, sprite, *r, [x, y, w, h], color) {
+             Some(draws) => {
+@@ -224,6 +229,9 @@ pub fn blit_sprite(
+     h: f32,
+     color: u32,
+ ) {
++    if skin::sprite(batch, atlas, sprite, [x, y, w, h], color) {
++        return;
++    }
+     if let Some(r) = atlas.sprites.get(sprite) {
+         match crate::hud::sprite_modifiers::draws(atlas, sprite, *r, [x, y, w, h], color) {
+             Some(draws) => {
+@@ -357,6 +365,9 @@ pub fn tiled_sized(
+     size: [f32; 2],
+     color: u32,
+ ) {
++    if skin::sprite(batch, atlas, sprite, [x, y, w, h], color) {
++        return;
++    }
+     let Some(r) = atlas.sprites.get(sprite).copied() else {
+         return;
+     };
+@@ -408,6 +419,18 @@ pub fn centered_text(
+     color: u32,
+ ) {
+     let text = text.resolved();
++    let at = skin::LabelBox {
++        center_x: x + (w / 2.0).floor(),
++        left: x,
++        right: x + w,
++        top: y,
++        bottom: y + 9.0,
++        y,
++        kind: skin::LabelKind::Line,
++    };
++    if skin::label(batch, atlas, &text, at, color) {
++        return;
++    }
+     let width = atlas.font.width_text(&text);
+     if width <= w {
+         batch.text_styled(atlas, &text, centered_left(x, w, width), y, color, true);
+@@ -488,6 +511,18 @@ pub fn scrolling_text_around_at(
+     color: u32,
+ ) {
+     let text = text.resolved();
++    let at = skin::LabelBox {
++        center_x,
++        left,
++        right,
++        top,
++        bottom,
++        y,
++        kind: skin::LabelKind::Widget,
++    };
++    if skin::label(batch, atlas, &text, at, color) {
++        return;
++    }
+     let width = atlas.font.width_text(&text);
+     let room = right - left;
+     if width <= room {
+diff --git a/crates/horizon-client-render/src/ui/skin.rs b/crates/horizon-client-render/src/ui/skin.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..0fc2bb491c71f2ef3658cf20ed42129d04365be2
+--- /dev/null
++++ b/crates/horizon-client-render/src/ui/skin.rs
+@@ -0,0 +1,256 @@
++//! A look for the shared widgets of [`crate::ui`] that the executable gives once at startup, as
++//! [`crate::pack_hooks`] gives pack formats: every screen that draws its buttons, sliders, fields,
++//! check boxes, tabs, scroll bars, tooltips, menu backgrounds, list backgrounds and separators
++//! with [`crate::ui`] (vanilla's screens and Horizon's own) asks the skin first, by the GUI
++//! sprite it would draw, and draws vanilla's sprite only when the skin leaves it. The labels those
++//! widgets centre ([`crate::ui::scrolling_text_around_at`]) and the centred lines of titles and
++//! messages ([`crate::ui::centered_text`]) are asked the same way.
++//!
++//! `HudBatch::sprite_scaled` (check boxes, a station's buttons) and the title's own buttons
++//! (`title.rs`, drawn as two halves of the sprite) ask it too.
++//!
++//! What the skin does not draw is drawn exactly as before, so a skin may handle as few sprites as
++//! it likes; with none installed nothing changes. Only the drawing is the skin's: where a widget
++//! is, what it records for the narrator and the controller, its hit box and what a click does
++//! stay the screen's. A skin is called on the window's thread while the frame's GUI is drawn; it
++//! must not panic (the game does not catch it).
++use crate::hud::{HudAtlas, HudBatch};
++use crate::text::Text;
++use std::sync::OnceLock;
++
++/// Where a centred label goes, in GUI pixels.
++#[derive(Clone, Copy, Debug, PartialEq)]
++pub struct LabelBox {
++    /// The x the label is centred on when it fits (a widget's middle, or the room's beside an
++    /// icon).
++    pub center_x: f32,
++    /// The room it must stay in: a wider label slides inside it (widgets) or is cut (lines).
++    pub left: f32,
++    pub right: f32,
++    /// The widget's top and bottom (a line's own 9 pixels for [`LabelKind::Line`]).
++    pub top: f32,
++    pub bottom: f32,
++    /// The top of the label's 9-pixel line, as vanilla places it.
++    pub y: f32,
++    pub kind: LabelKind,
++}
++
++/// What a label belongs to.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum LabelKind {
++    /// A widget's label (`AbstractWidget.extractScrollingStringOverContents`): a button, a
++    /// slider, a tab.
++    Widget,
++    /// A centred line of a screen (`GuiGraphicsExtractor.drawCenteredString`): a title, a line of
++    /// a message.
++    Line,
++}
++
++/// The look of the shared widgets.
++pub trait Skin: Send + Sync {
++    /// Once a frame, before the frame's GUI draws, with the atlas it draws from (a new atlas
++    /// comes with every resource reload).
++    fn begin(&self, _atlas: &HudAtlas) {}
++
++    /// Draws GUI sprite `sprite` (its atlas key: `gui/sprites/widget/button_highlighted`,
++    /// `gui/menu_background`, `gui/header_separator`...) over `rect` (`[x, y, width, height]` in
++    /// GUI pixels; a tiled background's whole area) tinted `color` (the HUD's ABGR, `u32::MAX`
++    /// for none), and returns true; false leaves it to vanilla's sprite.
++    fn sprite(
++        &self,
++        _batch: &mut HudBatch,
++        _atlas: &HudAtlas,
++        _sprite: &str,
++        _rect: [f32; 4],
++        _color: u32,
++    ) -> bool {
++        false
++    }
++
++    /// Draws centred label `text` (resolved: its translations filled in) at `at` in `color` (the
++    /// HUD's ABGR; a style's own colour wins) and returns true; false leaves it to the game's
++    /// font.
++    fn label(
++        &self,
++        _batch: &mut HudBatch,
++        _atlas: &HudAtlas,
++        _text: &Text,
++        _at: LabelBox,
++        _color: u32,
++    ) -> bool {
++        false
++    }
++}
++
++static SKIN: OnceLock<&'static dyn Skin> = OnceLock::new();
++
++/// Installs the skin, before the first frame. The first call wins: a later one is refused
++/// (false) and changes nothing.
++pub fn install(skin: &'static dyn Skin) -> bool {
++    SKIN.set(skin).is_ok()
++}
++
++/// The installed skin, if any.
++pub fn get() -> Option<&'static dyn Skin> {
++    SKIN.get().copied()
++}
++
++/// [`Skin::begin`], for the game's frame.
++pub fn begin(atlas: &HudAtlas) {
++    if let Some(skin) = get() {
++        skin.begin(atlas);
++    }
++}
++
++/// Whether the skin drew `sprite` over `rect` (for screens that draw a widget sprite
++/// themselves; [`crate::ui`]'s helpers ask it already).
++pub fn sprite(
++    batch: &mut HudBatch,
++    atlas: &HudAtlas,
++    sprite: &str,
++    rect: [f32; 4],
++    color: u32,
++) -> bool {
++    get().is_some_and(|skin| skin.sprite(batch, atlas, sprite, rect, color))
++}
++
++/// Whether the skin drew the label `text` at `at`.
++pub fn label(
++    batch: &mut HudBatch,
++    atlas: &HudAtlas,
++    text: &Text,
++    at: LabelBox,
++    color: u32,
++) -> bool {
++    get().is_some_and(|skin| skin.label(batch, atlas, text, at, color))
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::hud::Rect;
++    use std::collections::HashMap;
++
++    /// Draws one sprite of its own as a plain fill, and the labels of one text; leaves the rest.
++    struct Probe;
++    const PROBE: &str = "gui/sprites/widget/skin_probe";
++    impl Skin for Probe {
++        fn sprite(
++            &self,
++            batch: &mut HudBatch,
++            atlas: &HudAtlas,
++            sprite: &str,
++            [x, y, w, h]: [f32; 4],
++            _color: u32,
++        ) -> bool {
++            if sprite != PROBE {
++                return false;
++            }
++            batch.fill(atlas, x, y, w, h, 0xFF00_00FF);
++            true
++        }
++        fn label(
++            &self,
++            batch: &mut HudBatch,
++            atlas: &HudAtlas,
++            text: &Text,
++            at: LabelBox,
++            _color: u32,
++        ) -> bool {
++            if text.plain() != "skin probe" {
++                return false;
++            }
++            batch.fill(atlas, at.left, at.y, at.right - at.left, 9.0, 0xFF00_FF00);
++            true
++        }
++    }
++    static PROBE_SKIN: Probe = Probe;
++
++    fn atlas_with(sprites: &[&str]) -> HudAtlas {
++        let mut atlas = HudAtlas::boot();
++        let rect = Rect {
++            u0: 0.0,
++            v0: 0.0,
++            u1: 0.01,
++            v1: 0.01,
++            w: 20,
++            h: 20,
++        };
++        let mut map: HashMap<String, Rect> = atlas.sprites.clone();
++        for s in sprites {
++            map.insert((*s).to_owned(), rect);
++        }
++        atlas.sprites = map;
++        atlas
++    }
++
++    #[test]
++    fn the_skin_draws_what_it_takes_and_vanilla_the_rest() {
++        // Other tests may have installed it first: the same probe either way.
++        install(&PROBE_SKIN);
++        let atlas = atlas_with(&[PROBE, "gui/sprites/widget/button"]);
++        let mut batch = HudBatch::new([640, 480]);
++        crate::ui::nine_slice(&mut batch, &atlas, PROBE, 4.0, 4.0, 40.0, 20.0, u32::MAX);
++        // One fill in the skin's colour (two triangles), not vanilla's nine slices.
++        assert_eq!(batch.vertices.len(), 6);
++        assert!(batch.vertices.iter().all(|v| v.color == 0xFF00_00FF));
++        let mut vanilla = HudBatch::new([640, 480]);
++        crate::ui::nine_slice(
++            &mut vanilla,
++            &atlas,
++            "gui/sprites/widget/button",
++            4.0,
++            4.0,
++            40.0,
++            20.0,
++            u32::MAX,
++        );
++        assert!(!vanilla.vertices.is_empty());
++        assert!(vanilla.vertices.iter().all(|v| v.color == u32::MAX));
++        // Tiled backgrounds go through it too.
++        let mut tiled = HudBatch::new([640, 480]);
++        crate::ui::tiled(
++            &mut tiled,
++            &atlas,
++            PROBE,
++            0.0,
++            0.0,
++            64.0,
++            64.0,
++            32.0,
++            u32::MAX,
++        );
++        assert_eq!(tiled.vertices.len(), 6);
++    }
++
++    #[test]
++    fn the_skin_sets_the_labels_it_takes() {
++        install(&PROBE_SKIN);
++        let atlas = atlas_with(&[]);
++        let mut batch = HudBatch::new([640, 480]);
++        crate::ui::centered_text(
++            &mut batch,
++            &atlas,
++            &Text::literal("skin probe"),
++            0.0,
++            10.0,
++            200.0,
++            u32::MAX,
++        );
++        assert_eq!(batch.vertices.len(), 6);
++        assert!(batch.vertices.iter().all(|v| v.color == 0xFF00_FF00));
++        let mut other = HudBatch::new([640, 480]);
++        crate::ui::scrolling_text(
++            &mut other,
++            &atlas,
++            &Text::literal("Done"),
++            0.0,
++            200.0,
++            0.0,
++            20.0,
++            6.0,
++            u32::MAX,
++        );
++        assert!(other.vertices.iter().all(|v| v.color != 0xFF00_FF00));
++    }
++}
+diff --git a/crates/horizon-client/src/game.rs b/crates/horizon-client/src/game.rs
+index 20a379faf55845951528bd991e9a1e7d9d8b2ef4..194a062c24ad6dbd0cb32f7ac08e2da40ed6117a 100644
+--- a/crates/horizon-client/src/game.rs
++++ b/crates/horizon-client/src/game.rs
+@@ -5807,6 +5807,8 @@ impl Game<'_> {
+         self.title.is_some() && self.screen != Screen::DebugOptions
+     }
+     fn hud(&mut self, size: [u32; 2]) -> HudBatch {
++        // The widgets' skin, when the executable gave one, sees the atlas this frame draws from.
++        horizon_client::ui::skin::begin(&self.gui.atlas);
+         // Off a world (title, options, Win, a prompt before joining) the HUD shows nothing to
+         // keep clear of; `hud_layers` fills it in once the world's HUD draws.
+         let gui = HudBatch::new(size);
+diff --git a/crates/horizon-client/src/title.rs b/crates/horizon-client/src/title.rs
+index 5da0e7710c24f2254594278bb45e1cdfdc62c80e..034cb316428fd52e2c34b7375ea4302b1f6912ba 100644
+--- a/crates/horizon-client/src/title.rs
++++ b/crates/horizon-client/src/title.rs
+@@ -3488,8 +3488,11 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
+             } else {
+                 "gui/sprites/widget/button"
+             };
+-            // Nine-slice approximation: left and right halves of the 200-wide sprite.
+-            if let Some(r) = atlas.sprites.get(sprite).copied() {
++            // Nine-slice approximation: left and right halves of the 200-wide sprite (unless the
++            // executable's widget skin draws it).
++            if !crate::ui::skin::sprite(batch, atlas, sprite, [b.x, b.y, b.w, 20.0], u32::MAX)
++                && let Some(r) = atlas.sprites.get(sprite).copied()
++            {
+                 let half = b.w / 2.0;
+                 let mut left = r;
+                 left.u1 = r.u0 + (r.u1 - r.u0) * (half / r.w as f32);
+-- 
+2.47.0
+

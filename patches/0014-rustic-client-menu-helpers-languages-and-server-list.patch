@@ -1,0 +1,346 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: BouBou <69978359+BouBouw@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 07:00:00 +0100
+Subject: [PATCH] rustic: client menu helpers, languages and the server list
+
+Client helpers for a mod with menus of its own over the title: languages() and
+set_language(code) as the Language screen's Done, server_list() (servers.dat, the
+hidden entries being the servers joined by address), join_server(address) as Join
+Server (the address kept among the hidden servers as Direct Connection does) and
+add_server(name, address) as Add Server's Done. What needs the event loop or a
+mutable game is queued and run in idle. Rustic ADR 0013, U16.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/horizon-client/src/game.rs                  |   5 +
+ .../horizon-client/src/game/native_client_menus.rs | 236 +++++++++++++++++++++
+ crates/horizon-client/src/game/window_handler.rs   |   6 +
+ tools/native-hook-fragments/client_menus.json      |  28 +++
+ 4 files changed, 275 insertions(+)
+
+diff --git a/crates/horizon-client/src/game.rs b/crates/horizon-client/src/game.rs
+index 194a062c24ad6dbd0cb32f7ac08e2da40ed6117a..b57bd07e9cdf885e67a1ff28e43e17ae1f8b2943 100644
+--- a/crates/horizon-client/src/game.rs
++++ b/crates/horizon-client/src/game.rs
+@@ -270,6 +270,7 @@ mod native_chunk_snapshot;
+ mod native_chunk_tickets;
+ mod native_claimed_items;
+ mod native_client_entities;
++mod native_client_menus;
+ mod native_client_particles;
+ mod native_client_particles_fixture;
+ pub mod native_client_services;
+@@ -2947,6 +2948,9 @@ struct Game<'a> {
+     title_widgets_hidden: std::cell::Cell<bool>,
+     /// A main title button a native mod pressed (`native_title_open`), for `idle`.
+     title_open_request: std::cell::Cell<Option<horizon_client::title::MainButton>>,
++    /// Languages, joins and server list additions native mods asked for (`native_client_menus`),
++    /// for `idle`.
++    menu_requests: std::cell::RefCell<Vec<native_client_menus::MenuRequest>>,
+     /// `ServerChunkCache.lastSpawnState` of each level: its spawnable chunks
+     /// and each `MobCategory`'s count.
+     spawn_counts: HashMap<Dim, (i32, [i32; 8])>,
+@@ -12040,6 +12044,7 @@ impl<'a> Game<'a> {
+             screen_blur_requested: Default::default(),
+             title_widgets_hidden: Default::default(),
+             title_open_request: Default::default(),
++            menu_requests: Default::default(),
+             spawn_counts: HashMap::new(),
+             pause_menu: true,
+             pause_focus: None,
+diff --git a/crates/horizon-client/src/game/native_client_menus.rs b/crates/horizon-client/src/game/native_client_menus.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..ae894f5e06c176c8eb74a1c0664c199b46a4ba2c
+--- /dev/null
++++ b/crates/horizon-client/src/game/native_client_menus.rs
+@@ -0,0 +1,236 @@
++//! For a client mod that draws menus of its own over the title (a language picker, a server
++//! directory): the game's languages and choosing one as the Language screen does, the saved and
++//! recently joined servers, joining a server as the server list does and adding one to the list.
++//! API @API:client_menus@.
++use super::*;
++use horizon_client::title::{Action, Mode};
++use horizon_protocol::servers::{self, ServerEntry};
++
++/// What a mod asked for, done between frames (the helpers get a read-only game).
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub(super) enum MenuRequest {
++    Language(String),
++    Join(String),
++    Add { name: String, address: String },
++}
++
++/// Whether `address` is one the server list takes (`ServerAddress.isValidAddress`).
++fn joinable(address: &str) -> bool {
++    !address.trim().is_empty() && servers::parse_address(address.trim()).is_some()
++}
++
++/// `list` with `entry` added at its end unless an entry has its address already: whether it
++/// was added.
++fn add_unique(list: &mut Vec<ServerEntry>, entry: ServerEntry) -> bool {
++    if list.iter().any(|e| e.ip.eq_ignore_ascii_case(&entry.ip)) {
++        return false;
++    }
++    list.push(entry);
++    true
++}
++
++impl Game<'_> {
++    /// The languages the resources declare (`LanguageManager.getLanguages`), as the Language
++    /// screen lists them: `(code, name, region)`, `en_us` first then by code (`fr_fr`,
++    /// `Français`, `France`). The one in use is `lang::code`. Client only.
++    /// API @API:client_menus@.
++    pub(super) fn native_languages(&self) -> Vec<(String, String, String)> {
++        let root = self.options.resources.clone();
++        let mut all: Vec<_> = horizon_client::lang::available(&[&root])
++            .into_iter()
++            .map(|l| (l.code, l.name, l.region))
++            .collect();
++        all.sort_by_key(|(code, _, _)| (code != horizon_client::lang::DEFAULT, code.clone()));
++        all
++    }
++    /// Chooses language `code` (one of `native_languages`) as the Language screen's Done does:
++    /// it is saved in `options.txt` and the game's text reloads before the next frame. False for
++    /// a code the resources do not declare. Client only. API @API:client_menus@.
++    pub(super) fn native_set_language(&self, code: &str) -> bool {
++        if !self.native_window() || !self.native_languages().iter().any(|(c, _, _)| c == code) {
++            return false;
++        }
++        self.menu_requests
++            .borrow_mut()
++            .push(MenuRequest::Language(code.to_owned()));
++        true
++    }
++    /// The multiplayer list's servers (`servers.dat`): `(name, address, hidden)`, the shown
++    /// ones in the list's order, then the hidden ones vanilla keeps of the servers joined by
++    /// address (Direct Connection, `native_join_server`), the newest first. Client only.
++    /// API @API:client_menus@.
++    pub(super) fn native_server_list(&self) -> Vec<(String, String, bool)> {
++        let Some(saves) = self
++            .title
++            .as_ref()
++            .map(|t| t.saves.clone())
++            .or_else(|| std::env::current_dir().ok().map(|d| d.join("saves")))
++        else {
++            return Vec::new();
++        };
++        let (shown, hidden) = servers::load_all(&horizon_client::multiplayer::servers_file(&saves));
++        shown
++            .into_iter()
++            .map(|e| (e.name, e.ip, false))
++            .chain(hidden.into_iter().map(|e| (e.name, e.ip, true)))
++            .collect()
++    }
++    /// Joins the server at `address` (`host` or `host:port`) as the server list's Join Server
++    /// does, from any title screen; the address is kept among the hidden servers as Direct
++    /// Connection keeps it. The join runs before the next frame. False off the title (in a
++    /// world, or with Options over it), for an address the list would refuse, and when the
++    /// account may not play online. Client only. API @API:client_menus@.
++    pub(super) fn native_join_server(&self, address: &str) -> bool {
++        let on_title = self.screen == Screen::Playing
++            && self.title.as_ref().is_some_and(|t| t.allows_multiplayer);
++        if !on_title || !joinable(address) {
++            return false;
++        }
++        self.menu_requests
++            .borrow_mut()
++            .push(MenuRequest::Join(address.trim().to_owned()));
++        true
++    }
++    /// Adds a server named `name` at `address` at the end of the multiplayer list, as Add
++    /// Server's Done does; an open server list shows it. False for an address the list would
++    /// refuse or one it has already. Saved before the next frame. Client only.
++    /// API @API:client_menus@.
++    pub(super) fn native_add_server(&self, name: &str, address: &str) -> bool {
++        let address = address.trim();
++        if !self.native_window()
++            || !joinable(address)
++            || self
++                .native_server_list()
++                .iter()
++                .any(|(_, a, hidden)| !hidden && a.eq_ignore_ascii_case(address))
++        {
++            return false;
++        }
++        let name = if name.trim().is_empty() {
++            horizon_client::lang::get_or("selectServer.defaultName", "Minecraft Server")
++        } else {
++            name.trim().to_owned()
++        };
++        self.menu_requests.borrow_mut().push(MenuRequest::Add {
++            name,
++            address: address.to_owned(),
++        });
++        true
++    }
++    /// Runs what the helpers above queued, in order, between frames.
++    pub(super) fn run_menu_requests(&mut self, event_loop: &dyn EventLoopCtl) -> Result<()> {
++        let requests = std::mem::take(&mut *self.menu_requests.borrow_mut());
++        for request in requests {
++            match request {
++                MenuRequest::Language(code) => {
++                    if self.settings.language != code {
++                        self.settings.language = code.clone();
++                        self.settings.save(&Self::options_path());
++                        self.load_language(&code);
++                    }
++                }
++                MenuRequest::Add { name, address } => self.add_saved_server(&name, &address),
++                MenuRequest::Join(address) => {
++                    if self.title.is_none() || self.screen != Screen::Playing {
++                        continue;
++                    }
++                    self.remember_joined(&address);
++                    self.audio.play_button_click();
++                    self.title_action(
++                        event_loop,
++                        Action::Connect {
++                            address,
++                            lan: false,
++                            realm: false,
++                        },
++                    )?;
++                }
++            }
++        }
++        Ok(())
++    }
++    fn servers_path(&self) -> Option<std::path::PathBuf> {
++        let saves = self
++            .title
++            .as_ref()
++            .map(|t| t.saves.clone())
++            .or_else(|| std::env::current_dir().ok().map(|d| d.join("saves")))?;
++        Some(horizon_client::multiplayer::servers_file(&saves))
++    }
++    /// `ServerList.add(server, false)` and save; an open server list reads it again.
++    fn add_saved_server(&mut self, name: &str, address: &str) {
++        let Some(path) = self.servers_path() else {
++            return;
++        };
++        {
++            let _guard = servers::lock();
++            let (mut shown, hidden) = servers::load_all(&path);
++            if !add_unique(&mut shown, ServerEntry::new(name, address)) {
++                return;
++            }
++            if let Err(e) = servers::save_all(&path, &shown, &hidden) {
++                log::warn!("Horizon: could not save the server list: {e}");
++                return;
++            }
++        }
++        if let Some(title) = self.title.as_mut()
++            && let Mode::Multiplayer(screen @ horizon_client::multiplayer::Screen::List { .. }) =
++                &mut title.mode
++        {
++            *screen = horizon_client::multiplayer::Screen::list(&title.saves);
++        }
++    }
++    /// Direct Connection's `ServerList.add(server, true)`: the joined address among the hidden
++    /// servers, unless the list shows it.
++    fn remember_joined(&self, address: &str) {
++        let Some(path) = self.servers_path() else {
++            return;
++        };
++        let _guard = servers::lock();
++        let (shown, hidden) = servers::load_all(&path);
++        if shown.iter().any(|e| e.ip.eq_ignore_ascii_case(address)) {
++            return;
++        }
++        let name = horizon_client::lang::get_or("selectServer.defaultName", "Minecraft Server");
++        let rest: Vec<ServerEntry> = hidden
++            .into_iter()
++            .filter(|e| !e.ip.eq_ignore_ascii_case(address))
++            .collect();
++        let mut hidden = vec![ServerEntry::new(&name, address)];
++        hidden.extend(rest);
++        hidden.truncate(16);
++        if let Err(e) = servers::save_all(&path, &shown, &hidden) {
++            log::warn!("Horizon: could not save the server list: {e}");
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn only_addresses_the_list_takes_are_joined_or_added() {
++        assert!(joinable("play.example.org"));
++        assert!(joinable("play.example.org:25570"));
++        assert!(joinable(" 127.0.0.1 "));
++        assert!(!joinable(""));
++        assert!(!joinable("   "));
++        assert!(!joinable("bad host:99999"));
++    }
++
++    #[test]
++    fn a_server_is_added_once_by_address() {
++        let mut list = vec![ServerEntry::new("A", "a.example.org")];
++        assert!(add_unique(
++            &mut list,
++            ServerEntry::new("B", "b.example.org")
++        ));
++        assert!(!add_unique(
++            &mut list,
++            ServerEntry::new("A again", "A.example.org")
++        ));
++        assert_eq!(list.len(), 2);
++        assert_eq!(list[1].name, "B");
++    }
++}
+diff --git a/crates/horizon-client/src/game/window_handler.rs b/crates/horizon-client/src/game/window_handler.rs
+index d625882a00305639d1c325b7ed053fdf42fe1a2b..df3d0348d5e3f33a74dcf020baa1a82a459d6fc8 100644
+--- a/crates/horizon-client/src/game/window_handler.rs
++++ b/crates/horizon-client/src/game/window_handler.rs
+@@ -222,6 +222,12 @@ impl Game<'_> {
+             event_loop.exit();
+             return;
+         }
++        // Languages, joins and servers native mods asked for (`native_client_menus`).
++        if let Err(error) = self.run_menu_requests(event_loop) {
++            self.error = Some(error);
++            event_loop.exit();
++            return;
++        }
+         horizon_client::spans::time("server_packs", || self.tick_server_packs());
+         horizon_client::spans::time("control", || self.poll_control(event_loop));
+         if self.pending_save.is_some() {
+diff --git a/tools/native-hook-fragments/client_menus.json b/tools/native-hook-fragments/client_menus.json
+new file mode 100644
+index 0000000000000000000000000000000000000000..05b07a14bdd880edaedc731c028f6fd364350648
+--- /dev/null
++++ b/tools/native-hook-fragments/client_menus.json
+@@ -0,0 +1,28 @@
++{
++  "hooks": [],
++  "helpers": [
++    {
++      "name": "languages",
++      "target": "horizon_client::game::native_client_menus::Game<'_>::native_languages"
++    },
++    {
++      "name": "set_language",
++      "target": "horizon_client::game::native_client_menus::Game<'_>::native_set_language"
++    },
++    {
++      "name": "server_list",
++      "target": "horizon_client::game::native_client_menus::Game<'_>::native_server_list"
++    },
++    {
++      "name": "join_server",
++      "target": "horizon_client::game::native_client_menus::Game<'_>::native_join_server"
++    },
++    {
++      "name": "add_server",
++      "target": "horizon_client::game::native_client_menus::Game<'_>::native_add_server"
++    }
++  ],
++  "rust_summary": "a client mod with menus of its own over the title: the game's languages and choosing one (`native_languages`, `native_set_language`), the server list (`native_server_list`), joining a server and adding one to the list (`native_join_server`, `native_add_server`).",
++  "doc_summary": "`native_languages()` lists the resources' languages as `(code, name, region)`; `native_set_language(code)` chooses one as the Language screen does (saved, text reloaded before the next frame). `native_server_list()` gives `servers.dat`'s `(name, address, hidden)`, the hidden ones being the servers joined by address. `native_join_server(address)` joins from the title as Join Server does and keeps the address among the hidden servers; `native_add_server(name, address)` adds an entry as Add Server does (an open list shows it). Bundles need \"hooks\": @API:client_menus@.",
++  "comments": ["crates/horizon-client/src/game/native_client_menus.rs"]
++}
+-- 
+2.47.0
+

@@ -108,3 +108,14 @@ Tools used by the benchmark scripts, never shipped and never committed:
 The Bukkit workload and probe plugins (`bench/bukkit/`) are original code compiled against the
 published Paper API jar fetched by `bridge/java/build.sh`; like `bridge/java` they are
 GPL-3.0-only (SPDX headers), separate from Rustic's `MIT OR Apache-2.0` code.
+
+## Rustic edition client (launcher branch): in-game look
+
+- **Lunar Client** inspired the *organisation* of the in-game menus and the Discover screen (a server directory
+  with a featured hero, sections and Join buttons, small stacked title buttons). No Lunar code, asset, text, icon
+  or colour is used; Rustic keeps its own identity (orange accent, Inter, its own icons).
+- **Language flags** on the edition's language screen are **drawn in code** (`client-mod/rustic-companion/core/src/flags.rs`:
+  bands, crosses, discs, triangles; simplified, no coats of arms or stars). No third-party flag set is bundled.
+- **Inter** (SIL OFL 1.1), already bundled for the title menu (`client-mod/rustic-companion/mod/assets/`), sets every
+  label of the Rustic widget skin.
+
