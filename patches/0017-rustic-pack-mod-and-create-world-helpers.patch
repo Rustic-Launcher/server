@@ -1,0 +1,1254 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: BouBou <69978359+BouBouw@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 12:00:00 +0100
+Subject: [PATCH] rustic: pack, mod and Create World helpers, mod tags, pad clicks to hooks
+
+Client helpers for a mod that draws the options' pack screen, the mod browser and
+Create World its own way: options_page(), options_packs(), options_mods(),
+options_act(act) (pack arrows, restore, folders, leave, install, switch, page),
+create_world() and create_world_act(act) (name, seed, any tab's button by id
+through Title::press_create), and pad_clicks_to_hooks(on), which lets the clicks
+a controller or the keyboard's focus makes up reach the screens' mouse hooks
+(press_at's never do). PackScreen::act/restore/can; the settings shell's rows
+get tags and two-line notes; options_shell::set_mod_tags and set_find_mods.
+Off by default: nothing changes with no mod. Rustic ADR 0015, U19.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+diff --git a/crates/horizon-client-render/src/hud.rs b/crates/horizon-client-render/src/hud.rs
+index 11dfff7ace61b4612bdc56e7c1cd4f3808f7ae4b..788a6a00f11289890366bbd6cb8c4985225b033d 100644
+--- a/crates/horizon-client-render/src/hud.rs
++++ b/crates/horizon-client-render/src/hud.rs
+@@ -2164,7 +2164,7 @@ impl HudBatch {
+                 .map(|(c, style)| atlas.font.advance(c, style))
+                 .collect();
+             let line = crate::ui::skin::TextLine {
+-                text: &*visual,
++                text: &visual,
+                 advances: &advances,
+                 x,
+                 y,
+diff --git a/crates/horizon-client-render/src/options_shell.rs b/crates/horizon-client-render/src/options_shell.rs
+index e1785ffe09ef543dfc28c136bf28fa6ed7de939f..de1966d72a3d0e31610df0e060428d698d3ef45e 100644
+--- a/crates/horizon-client-render/src/options_shell.rs
++++ b/crates/horizon-client-render/src/options_shell.rs
+@@ -43,6 +43,28 @@ pub fn set_texts(texts: fn(&str) -> Option<String>) -> bool {
+     TEXTS.set(texts).is_ok()
+ }
+ 
++/// Where each installed mod comes from, as small labels on its row of the Mods page: the
++/// executable's answer for a mod's id and whether it is native (built into the game).
++static MOD_TAGS: OnceLock<fn(&str, bool) -> Vec<(String, u32)>> = OnceLock::new();
++
++/// A row of the Mods page that sends the player elsewhere to find mods (the executable's own
++/// store or launcher): its name, in the game's language, and what a press does.
++static FIND_MODS: OnceLock<(fn() -> String, fn())> = OnceLock::new();
++
++/// Gives the labels each installed mod's row carries on the Mods page (where it comes from), once
++/// (the first given is kept). `tags(id, native)` gives `(label, 0xRRGGBB)` pairs; it is asked
++/// each time the page is laid out, so it must be quick (keep what it reads from disk).
++pub fn set_mod_tags(tags: fn(&str, bool) -> Vec<(String, u32)>) -> bool {
++    MOD_TAGS.set(tags).is_ok()
++}
++
++/// Adds a row to the Mods page, before Browse Mods, that sends the player to find mods elsewhere:
++/// `label()` names it, `press()` runs when it is pressed (on the game's thread: start anything
++/// slow on another). Once; the first given is kept.
++pub fn set_find_mods(label: fn() -> String, press: fn()) -> bool {
++    FIND_MODS.set((label, press)).is_ok()
++}
++
+ /// Text `key`, the executable's wording when it gives one.
+ fn text(key: &str) -> String {
+     TEXTS
+@@ -112,6 +134,8 @@ pub(crate) enum OptRow {
+     ModSettings(usize),
+     /// The mods folder, in the file manager.
+     ModFolder,
++    /// The executable's row to find mods elsewhere (`set_find_mods`).
++    FindMods,
+ }
+ 
+ /// The group of the Options page's own settings ("Preferences").
+@@ -156,6 +180,10 @@ fn mod_groups(screen: &OptionsScreen, s: &Settings) -> Vec<Group<OptRow>> {
+             about = format!("{}{about}", lang::get(key).trim_start());
+         }
+         let live = !(m.dev || m.id.is_empty() || frozen);
++        let tags = MOD_TAGS
++            .get()
++            .map(|f| f(&m.id, m.native.is_some()))
++            .unwrap_or_default();
+         rows.push(
+             Row::new(
+                 OptRow::Mod(i),
+@@ -163,7 +191,8 @@ fn mod_groups(screen: &OptionsScreen, s: &Settings) -> Vec<Group<OptRow>> {
+                 Value::Switch(s.mods.is_on(i)),
+             )
+             .about(about)
+-            .live(live),
++            .live(live)
++            .tags(tags),
+         );
+         if m.native
+             .as_ref()
+@@ -178,22 +207,29 @@ fn mod_groups(screen: &OptionsScreen, s: &Settings) -> Vec<Group<OptRow>> {
+         }
+     }
+     if rows.is_empty() {
+-        rows.push(Row::new(OptRow::ModFolder, text("horizon.mods.empty"), Value::Note).live(false));
++        // One note per line of the text (each wraps on two lines of its row when narrow).
++        for line in text("horizon.mods.empty").lines() {
++            let line = line.trim();
++            if !line.is_empty() {
++                rows.push(Row::new(OptRow::ModFolder, line.to_owned(), Value::Note).live(false));
++            }
++        }
+     }
+-    vec![
+-        group("horizon.pages.mods", rows),
+-        group(
+-            MORE,
+-            vec![
+-                link(Page::ModBrowser, "horizon.mods.browse", ""),
+-                Row::new(
+-                    OptRow::ModFolder,
+-                    plain("horizon.mods.open_folder"),
+-                    Value::Open("\u{203a}".into()),
+-                ),
+-            ],
+-        ),
+-    ]
++    let mut more = Vec::new();
++    if let Some((label, _)) = FIND_MODS.get() {
++        more.push(Row::new(
++            OptRow::FindMods,
++            label(),
++            Value::Open("\u{203a}".into()),
++        ));
++    }
++    more.push(link(Page::ModBrowser, "horizon.mods.browse", ""));
++    more.push(Row::new(
++        OptRow::ModFolder,
++        plain("horizon.mods.open_folder"),
++        Value::Open("\u{203a}".into()),
++    ));
++    vec![group("horizon.pages.mods", rows), group(MORE, more)]
+ }
+ 
+ /// A label without vanilla's "..." of a button that opens a page.
+@@ -456,6 +492,12 @@ impl Screen for OptionsScreen {
+                 Output::Event(Event::NativeSettings(i)),
+             ],
+             OptRow::ModFolder => vec![Output::Event(Event::OpenModFolder)],
++            OptRow::FindMods => {
++                if let Some((_, press)) = FIND_MODS.get() {
++                    press();
++                }
++                vec![Output::Event(Event::ButtonClick)]
++            }
+         }
+     }
+     /// A link to another of this screen's pages opens it here (Escape comes back).
+diff --git a/crates/horizon-client-render/src/options_ui.rs b/crates/horizon-client-render/src/options_ui.rs
+index 8a278711efdd14161ec41aead676b6d28ff33d92..2dd673e52f9926f390dca5b6f01c1eab564a8952 100644
+--- a/crates/horizon-client-render/src/options_ui.rs
++++ b/crates/horizon-client-render/src/options_ui.rs
+@@ -2090,6 +2090,18 @@ impl OptionsUi {
+     pub fn resource_packs_open(&self) -> bool {
+         self.page() == Page::Packs && self.data_pack_dir.is_none()
+     }
++    /// Create World's Data Packs screen is the open page (the pack screen over a world's packs).
++    pub fn data_packs_open(&self) -> bool {
++        self.page() == Page::Packs && self.data_pack_dir.is_some()
++    }
++    /// What the pack screen's Open Pack Folder button asks the game to open: the resource packs'
++    /// folder, or the new world's data pack folder.
++    pub fn pack_folder_event(&self) -> Event {
++        match &self.data_pack_dir {
++            Some(dir) => Event::OpenDataPackFolder(dir.clone()),
++            None => Event::OpenPackFolder,
++        }
++    }
+     /// The packs in `resourcepacks/` changed while the pack screen is open
+     /// (`PackSelectionScreen`'s directory watcher): the screen is made again over
+     /// `infos`, keeping the selection made on it so far.
+diff --git a/crates/horizon-client-render/src/pack_options_ui.rs b/crates/horizon-client-render/src/pack_options_ui.rs
+index 383d0ef3020931cee28962958591f8c1ecbbc467..9c483fa6b416d5722c933cd844d047d339289383 100644
+--- a/crates/horizon-client-render/src/pack_options_ui.rs
++++ b/crates/horizon-client-render/src/pack_options_ui.rs
+@@ -331,6 +331,7 @@ impl PackOptionsUi {
+                     focused: false,
+                     held: self.dragging == Some(row),
+                     key: None,
++                    tags: &[],
+                 };
+                 shell::row(batch, atlas, &cols, y, &view);
+             },
+diff --git a/crates/horizon-client-render/src/pack_screen.rs b/crates/horizon-client-render/src/pack_screen.rs
+index a16159953f9a9abfdbebfa7904f97df0c2185a20..7618e3567fe1958d70911604dce1e1ee06e99580 100644
+--- a/crates/horizon-client-render/src/pack_screen.rs
++++ b/crates/horizon-client-render/src/pack_screen.rs
+@@ -327,6 +327,18 @@ pub enum Action {
+     BrowsePick(usize),
+ }
+ 
++/// A press on a pack's card made by someone else than the screen ([`PackScreen::act`]).
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum PackAct {
++    /// From the available list to the selected one.
++    Select,
++    /// Back to the available list.
++    Unselect,
++    /// One place up in the selected list (applied later: over the packs under it).
++    Up,
++    Down,
++}
++
+ /// The pack screen and its state.
+ #[derive(Clone, Debug)]
+ pub struct PackScreen {
+@@ -344,6 +356,9 @@ pub struct PackScreen {
+     confirm: Option<Confirm>,
+     /// The selection changed since the screen opened.
+     pub changed: bool,
++    /// The selection the screen opened with (options.txt's order, bottom first), for
++    /// [`PackScreen::restore`].
++    opened_with: Vec<String>,
+     /// The packs' icons by their [`icon_texture`], and the browser's.
+     pub icons: HashMap<String, Arc<[u8]>>,
+     /// Horizon's own Add button and its Modrinth list, when the player has
+@@ -460,6 +475,7 @@ impl PackScreen {
+             },
+             browser_focus: false,
+             changed: false,
++            opened_with: selected.to_vec(),
+         };
+         s.reposition(m);
+         s.populate(None);
+@@ -595,6 +611,61 @@ impl PackScreen {
+     fn overlay(&self, id: &str) -> bool {
+         self.info(id).is_none_or(|p| !p.fixed || !p.required)
+     }
++    /// What a press on a pack's card does, for a screen drawn by someone else over this one (a
++    /// client mod's own pack page): the same as the arrows on its icon. Selecting an incompatible
++    /// pack opens its confirmation first, as the icon does. False when it can't be done (the
++    /// pack isn't in that list, is required or fixed, a confirmation is open).
++    pub fn act(&mut self, id: &str, act: PackAct) -> bool {
++        if self.confirm.is_some() {
++            return false;
++        }
++        let side = usize::from(act != PackAct::Select);
++        let Some(index) = self.model_index(side, id) else {
++            return false;
++        };
++        let (sel, unsel, up, down) = self.flags(side, id);
++        let s = side == 1;
++        match act {
++            PackAct::Select if sel => {
++                if self
++                    .info(id)
++                    .is_some_and(|p| p.compat != Compat::Compatible)
++                {
++                    self.open_confirm(id);
++                    return true;
++                }
++                self.model.activate(s, index, true);
++            }
++            PackAct::Unselect if unsel => {
++                self.model.activate(s, index, false);
++            }
++            PackAct::Up if up => {
++                self.model.move_by(s, index, true);
++            }
++            PackAct::Down if down => {
++                self.model.move_by(s, index, false);
++            }
++            _ => return false,
++        }
++        self.changed = true;
++        self.populate(Some(id));
++        true
++    }
++    /// Back to the selection the screen opened with (a Cancel): leaving then changes nothing.
++    pub fn restore(&mut self) {
++        self.confirm = None;
++        self.model = SelectionModel::new(
++            self.packs.iter().map(PackInfo::selectable).collect(),
++            &self.opened_with,
++        );
++        self.changed = false;
++        self.populate(None);
++    }
++    /// What can be done to pack `id` now: (select, unselect, up, down).
++    pub fn can(&self, id: &str) -> (bool, bool, bool, bool) {
++        let side = usize::from(self.model.selected.iter().any(|p| p.id == id));
++        self.flags(side, id)
++    }
+ 
+     /// Whether a left click activates a footer or confirmation button.
+     /// Pack entries and the search field do not play widget click sounds.
+@@ -1717,6 +1788,41 @@ mod icon_tests {
+         assert!(load_icon(b"not a png").is_none());
+     }
+ 
++    /// A page drawn over the screen moves packs by id as the icon's arrows do, an incompatible
++    /// pack asks first, and a restore puts back the selection the screen opened with.
++    #[test]
++    fn packs_move_by_id_and_a_restore_puts_the_opening_selection_back() {
++        let atlas =
++            crate::hud::HudAtlas::build(std::path::Path::new("/nonexistent/horizon-test-assets"))
++                .unwrap();
++        let m = Measure(&atlas.font);
++        let mut old = pack("file/Old", None);
++        old.compat = Compat::TooOld;
++        let packs = vec![pack("file/A", None), pack("file/B", None), old];
++        let mut screen = PackScreen::new(&m, tr("resourcePack.title"), 480, 320, false, packs, &[]);
++        let selected = |s: &PackScreen| -> Vec<String> {
++            s.model.selected.iter().map(|p| p.id.clone()).collect()
++        };
++        assert!(screen.act("file/A", PackAct::Select));
++        assert!(screen.act("file/B", PackAct::Select));
++        assert_eq!(selected(&screen), ["file/B", "file/A"]);
++        assert!(screen.act("file/A", PackAct::Up));
++        assert_eq!(selected(&screen), ["file/A", "file/B"]);
++        assert!(!screen.act("file/A", PackAct::Up), "already on top");
++        assert_eq!(screen.can("file/B"), (false, true, true, false));
++        // Incompatible: the confirmation opens, nothing moves yet.
++        assert!(screen.act("file/Old", PackAct::Select));
++        assert!(screen.confirming());
++        assert!(
++            !screen.act("file/B", PackAct::Unselect),
++            "not under a confirmation"
++        );
++        assert!(screen.changed);
++        screen.restore();
++        assert!(!screen.confirming() && !screen.changed);
++        assert!(selected(&screen).is_empty());
++    }
++
+     /// A pack with Polytone options carries an options button on its card, which opens
+     /// that pack's options and nothing else; a pack without options has none.
+     #[test]
+diff --git a/crates/horizon-client-render/src/settings_shell.rs b/crates/horizon-client-render/src/settings_shell.rs
+index 77636772ac20421f26d79d37d08a6c19f29e716e..ee7e270ff02e86fb9ef5a1bbc0e66fc8f3ea48e4 100644
+--- a/crates/horizon-client-render/src/settings_shell.rs
++++ b/crates/horizon-client-render/src/settings_shell.rs
+@@ -471,6 +471,8 @@ pub(crate) struct RowView<'a> {
+     /// A key binding, drawn as a button rather than a value between arrows: whether it waits for
+     /// its key.
+     pub(crate) key: Option<bool>,
++    /// Small labels after the name (`Row::tags`).
++    pub(crate) tags: &'a [(String, u32)],
+ }
+ 
+ /// A setting's row at `y`, its name on the left and its control on the right.
+@@ -486,6 +488,7 @@ pub(crate) fn row(batch: &mut HudBatch, atlas: &HudAtlas, cols: &Columns, y: f32
+         focused,
+         held,
+         key,
++        tags,
+     } = view;
+     let rect = cols.row(y);
+     let (tx, tw) = cols.track();
+@@ -573,9 +576,49 @@ pub(crate) fn row(batch: &mut HudBatch, atlas: &HudAtlas, cols: &Columns, y: f32
+                 );
+             }
+         }
+-        // The name, cut short before the control where a translation runs long.
+-        let shown = Text::literal(style::fit(atlas, name, start - 6.0 - left));
++        // The tags before the control, as many as fit with some of the name left.
++        let tag_w = |t: &str| atlas.font.width(t) + 2.0 * TAG_PAD;
++        let room = start - 6.0 - left;
++        let mut shown_tags = 0;
++        let mut tags_w = 0.0;
++        for (t, _) in tags {
++            let w = tag_w(t) + TAG_GAP;
++            if room - (tags_w + w) < TAG_MIN_NAME {
++                break;
++            }
++            tags_w += w;
++            shown_tags += 1;
++        }
++        // The name, cut short before the tags and the control where a translation runs long.
++        let name_room = room - tags_w;
++        let shown = Text::literal(style::fit(atlas, name, name_room));
+         batch.text_styled(atlas, &shown, left, ty, color, true);
++        // Right-aligned before the control, so they line up from row to row whatever font the
++        // name is set in.
++        let mut x = start - 6.0 - tags_w + TAG_GAP;
++        for (t, rgb) in tags.iter().take(shown_tags) {
++            let w = tag_w(t);
++            let ink = if live {
++                0xFF00_0000 | rgb
++            } else {
++                style::muted()
++            };
++            style::fill(
++                batch,
++                atlas,
++                [x, ty - 2.0, w, 11.0],
++                0x4000_0000 | (rgb & 0xFF_FFFF),
++            );
++            batch.text_styled(
++                atlas,
++                &Text::literal(t.clone()),
++                x + TAG_PAD,
++                ty,
++                ink,
++                false,
++            );
++            x += w + TAG_GAP;
++        }
+     }
+     if focused {
+         style::ring(
+@@ -587,6 +630,12 @@ pub(crate) fn row(batch: &mut HudBatch, atlas: &HudAtlas, cols: &Columns, y: f32
+     }
+ }
+ 
++/// A row tag's padding either side of its text, the gap between tags, and the name's width
++/// kept before tags are left out.
++const TAG_PAD: f32 = 3.0;
++const TAG_GAP: f32 = 4.0;
++const TAG_MIN_NAME: f32 = 48.0;
++
+ /// A binding's reset button, at the end of its row at `y`.
+ fn reset_rect(cols: &Columns, y: f32) -> [f32; 4] {
+     let right = cols.list_x + cols.list_w - RESET_INSET;
+@@ -1223,6 +1272,9 @@ pub(crate) struct Row<R> {
+     pub(crate) why: Option<String>,
+     /// What it costs, beside its name in the strip.
+     pub(crate) cost: Option<style::Cost>,
++    /// Small labels drawn after the name, each in its colour (`0xRRGGBB`): where a mod comes
++    /// from, for one. Searched with the name.
++    pub(crate) tags: Vec<(String, u32)>,
+ }
+ impl<R> Row<R> {
+     pub(crate) fn new(id: R, name: String, value: Value) -> Self {
+@@ -1235,8 +1287,13 @@ impl<R> Row<R> {
+             live: true,
+             why: None,
+             cost: None,
++            tags: Vec::new(),
+         }
+     }
++    pub(crate) fn tags(mut self, tags: Vec<(String, u32)>) -> Self {
++        self.tags = tags;
++        self
++    }
+     pub(crate) fn about(mut self, about: String) -> Self {
+         self.about = about;
+         self
+@@ -1779,6 +1836,10 @@ impl<S: Screen> Shell<S> {
+                         || self.dragging == Some(row.id)
+                         || row.name.to_lowercase().contains(&query)
+                         || row.about.to_lowercase().contains(&query)
++                        || row
++                            .tags
++                            .iter()
++                            .any(|(t, _)| t.to_lowercase().contains(&query))
+                     {
+                         indices.push(rows.len());
+                         rows.push(row);
+@@ -2162,16 +2223,33 @@ impl<S: Screen> Shell<S> {
+             let rect = cols.row(y);
+             crate::widgets::record(&row.name, rect, false);
+             crate::widgets::narratable(|| crate::widgets::Narratable::text(row.name.clone(), rect));
+-            let ty = y + ((style::ROW - 8.0) / 2.0).floor();
+-            let name = Text::literal(style::fit(atlas, &row.name, rect[2] - 2.0 * style::INSET));
+-            batch.text_styled(
+-                atlas,
+-                &name,
+-                rect[0] + style::INSET,
+-                ty,
+-                style::muted(),
+-                true,
+-            );
++            // A note too long for the row takes two lines of it (the second cut short).
++            let width = rect[2] - 2.0 * style::INSET;
++            let lines = atlas.font.split(&Text::literal(row.name.clone()), width);
++            let lines: Vec<String> = if lines.len() > 1 {
++                let rest: Vec<String> = lines[1..].iter().map(|l| l.plain()).collect();
++                vec![
++                    lines[0].plain(),
++                    style::fit(atlas, rest.join(" ").trim(), width).into_owned(),
++                ]
++            } else {
++                vec![style::fit(atlas, &row.name, width).into_owned()]
++            };
++            let ty = if lines.len() > 1 {
++                y + 1.0
++            } else {
++                y + ((style::ROW - 8.0) / 2.0).floor()
++            };
++            for (i, line) in lines.into_iter().enumerate() {
++                batch.text_styled(
++                    atlas,
++                    &Text::literal(line),
++                    rect[0] + style::INSET,
++                    ty + 9.5 * i as f32,
++                    style::muted(),
++                    true,
++                );
++            }
+             return;
+         }
+         let over = |[x, y, w, h]: [f32; 4]| pointer.is_some_and(|at| ui::hovered(at, x, y, w, h));
+@@ -2224,6 +2302,7 @@ impl<S: Screen> Shell<S> {
+             focused,
+             held: self.dragging == Some(row.id),
+             key: row.binding().map(|_| waits),
++            tags: &row.tags,
+         };
+         self::row(batch, atlas, cols, y, &view);
+         if row.live && matches!(row.value, Value::Choice(_)) {
+diff --git a/crates/horizon-client/src/game.rs b/crates/horizon-client/src/game.rs
+index ec81b270e47d5bab8b3e44c1bff7429078a305d5..7a62f1b7ad4a184aa94de4d0217beb146fdd1a89 100644
+--- a/crates/horizon-client/src/game.rs
++++ b/crates/horizon-client/src/game.rs
+@@ -271,6 +271,7 @@ mod native_chunk_tickets;
+ mod native_claimed_items;
+ mod native_client_entities;
+ mod native_client_menus;
++pub mod native_client_options;
+ mod native_client_particles;
+ mod native_client_particles_fixture;
+ pub mod native_client_screens;
+@@ -2955,6 +2956,15 @@ struct Game<'a> {
+     /// Rows chosen, presses and saved server changes native mods asked for
+     /// (`native_client_screens`), for `idle`.
+     screen_requests: std::cell::RefCell<Vec<native_client_screens::ScreenRequest>>,
++    /// Pack, mod and Create World presses native mods asked for (`native_client_options`), for
++    /// `idle`.
++    options_requests: std::cell::RefCell<Vec<native_client_options::OptionsRequest>>,
++    /// A native mod asked for the clicks a controller or the keyboard's focus makes up to reach
++    /// the screens' mouse hooks too (`native_pad_clicks_to_hooks`).
++    pad_clicks_to_hooks: std::cell::Cell<bool>,
++    /// The click being handled is a native mod's own press (`native_press_at`): never heard by
++    /// the mouse hooks.
++    mod_press: bool,
+     /// `ServerChunkCache.lastSpawnState` of each level: its spawnable chunks
+     /// and each `MobCategory`'s count.
+     spawn_counts: HashMap<Dim, (i32, [i32; 8])>,
+@@ -10371,9 +10381,12 @@ impl Game<'_> {
+             // button, no sort, no drag. First in the event, so none of the
+             // arms below (which hold the container hotkey and the sort and
+             // header buttons too) see it. A click the pad or the keyboard's
+-            // focus made up is not the mouse: it fires nothing.
++            // focus made up is not the mouse: it fires nothing, unless a mod
++            // asked for those too (`native_pad_clicks_to_hooks`); a mod's own
++            // press (`native_press_at`) never does.
+             if let WindowEvent::MouseInput { state, button, .. } = &event
+-                && !self.pad_synthetic_input()
++                && (!self.pad_synthetic_input()
++                    || (self.pad_clicks_to_hooks.get() && !self.mod_press))
+                 && let Some(screen) = self.screen_view_now()
+             {
+                 let (button, modifiers) = (glfw_button(*button), glfw_modifiers(self.modifiers));
+@@ -12084,6 +12097,9 @@ impl<'a> Game<'a> {
+             title_open_request: Default::default(),
+             menu_requests: Default::default(),
+             screen_requests: Default::default(),
++            options_requests: Default::default(),
++            pad_clicks_to_hooks: Default::default(),
++            mod_press: false,
+             spawn_counts: HashMap::new(),
+             pause_menu: true,
+             pause_focus: None,
+diff --git a/crates/horizon-client/src/game/native_client_screens.rs b/crates/horizon-client/src/game/native_client_screens.rs
+index 89f00dee55191932d4c45f5187c0fb00327179dd..b9f499a1feed704f07ea6c91332af553914b5b8c 100644
+--- a/crates/horizon-client/src/game/native_client_screens.rs
++++ b/crates/horizon-client/src/game/native_client_screens.rs
+@@ -323,6 +323,7 @@ impl Game<'_> {
+             |(x, y): (f32, f32)| PhysicalPosition::new(f64::from(x * scale), f64::from(y * scale));
+         let device_id = DeviceId::dummy();
+         let was = std::mem::replace(&mut self.pad.menu.synthetic, true);
++        let was_mod = std::mem::replace(&mut self.mod_press, true);
+         let mut events = vec![WindowEvent::CursorMoved {
+             device_id,
+             position: at((x, y)),
+@@ -342,6 +343,7 @@ impl Game<'_> {
+             self.handle_window_event(event_loop, id, event, super::input_trace::InputOrigin::Game);
+         }
+         self.pad.menu.synthetic = was;
++        self.mod_press = was_mod;
+     }
+ }
+ 
+diff --git a/crates/horizon-client/src/game/window_handler.rs b/crates/horizon-client/src/game/window_handler.rs
+index fcb99b99d8b66c3e8b4a12fb00d18697ad4233cd..102b2292d6ce0a4db696e690e4f18ef22ca60f17 100644
+--- a/crates/horizon-client/src/game/window_handler.rs
++++ b/crates/horizon-client/src/game/window_handler.rs
+@@ -230,6 +230,12 @@ impl Game<'_> {
+         }
+         // Rows, presses and saved servers native mods asked for (`native_client_screens`).
+         self.run_screen_requests(event_loop);
++        // Pack, mod and Create World presses native mods asked for (`native_client_options`).
++        if let Err(error) = self.run_options_requests(event_loop) {
++            self.error = Some(error);
++            event_loop.exit();
++            return;
++        }
+         horizon_client::spans::time("server_packs", || self.tick_server_packs());
+         horizon_client::spans::time("control", || self.poll_control(event_loop));
+         if self.pending_save.is_some() {
+diff --git a/crates/horizon-client/src/mod_api.rs b/crates/horizon-client/src/mod_api.rs
+index f56d8c11f146ff52f4ec1ff1ca25a5acda98a6b9..993595796cb96bc544ab0671fbb14187bd17fc4d 100644
+--- a/crates/horizon-client/src/mod_api.rs
++++ b/crates/horizon-client/src/mod_api.rs
+@@ -32,6 +32,10 @@ pub use crate::game::NativeInventoryKind;
+ pub use crate::game::NativeSidebar;
+ pub use crate::game::NativeSlotRole;
+ pub use crate::game::native_block_entity_draw::{BlockEntityDraw, CubeFace};
++pub use crate::game::native_client_options::{
++    NativeCreateAct, NativeCreateWorld, NativeInstalledMod, NativeMods, NativeOptionsAct,
++    NativePack, NativePacks,
++};
+ pub use crate::game::native_client_screens::{
+     NativeServerEntry, NativeServerStatus, NativeWorldEntry,
+ };
+@@ -80,6 +84,8 @@ pub use crate::terrain_model::{
+ pub use crate::text::Text;
+ pub use crate::world_primitives::{PrimitiveShape, WorldPrimitive, WorldPrimitives};
+ pub use horizon_assets::item_model::{DisplayContext, StackView};
++pub use horizon_client::pack_screen::Source as NativePackSource;
++pub use horizon_client::pack_screen::{Compat as NativePackCompat, PackAct as NativePackAct};
+ pub use horizon_core::{
+     geometry::Direction,
+     position::BlockPos,
+diff --git a/crates/horizon-client/src/title.rs b/crates/horizon-client/src/title.rs
+index 034cb316428fd52e2c34b7375ea4302b1f6912ba..2c93dc394ab002ba7291f7a2d33fcdfaaeb63b29 100644
+--- a/crates/horizon-client/src/title.rs
++++ b/crates/horizon-client/src/title.rs
+@@ -3705,6 +3705,76 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
+         true
+     }
+ 
++    /// Create World has a screen of its own open over it (Game Rules, Experiments, the
++    /// experiments' confirmation) or prepares the world: its own widgets don't take presses.
++    pub fn create_covered(&self) -> bool {
++        matches!(self.mode, Mode::Create { .. })
++            && (self.rules.borrow().is_some()
++                || self.experiments.borrow().is_some()
++                || self.confirm_experiments.borrow().is_some()
++                || self.preparing)
++    }
++    /// Presses Create World's button `id` (whatever tab shows it) as a click on it does, for a
++    /// page drawn over the screen in another layout: `step` -1 steps a cycle button back (the
++    /// mouse wheel's way). The action for the game to run, as after a click; None on another
++    /// screen, under one of its own screens (`create_covered`), for an id it doesn't have and
++    /// for a button that is off (Difficulty in Hardcore...). Ids: 20 Game Mode, 23 Difficulty,
++    /// 24 Allow Commands, 25 World Type, 26 Customize, 27 Generate Structures, 28 Bonus Chest,
++    /// 29 Game Rules, 30 Experiments, 31 Data Packs, 21 Create New World, 22 Cancel.
++    pub fn press_create(&mut self, id: u8, step: i32) -> Option<Action> {
++        if self.create_covered() {
++            return None;
++        }
++        let Mode::Create {
++            creative, options, ..
++        } = &mut self.mode
++        else {
++            return None;
++        };
++        let tab = match id {
++            20 | 23 | 24 => 0,
++            25..=28 => 1,
++            29..=31 => 2,
++            21 | 22 => options.tab,
++            _ => return None,
++        };
++        let mut shown = options.clone();
++        shown.tab = tab;
++        // Laid out at any size: only the ids and whether they are on matter.
++        let on = create_world::buttons(480.0, 270.0, *creative, &shown)
++            .iter()
++            .any(|b| b.id == id && b.enabled);
++        if !on {
++            return None;
++        }
++        if step < 0 && matches!(id, 20 | 23 | 25) {
++            options.cycle(id, creative, step);
++            return Some(Action::None);
++        }
++        Some(self.click_action(0.0, 0.0, (480.0, 270.0), Some(id)))
++    }
++    /// Gives the keyboard to Create World's World Name (0) or Seed (1) field, or to neither (2):
++    /// typing, paste and the cursor keys then edit that field as after a click on it. False on
++    /// another screen.
++    pub fn set_create_focus(&mut self, field: u8) -> bool {
++        let Mode::Create { focus, .. } = &mut self.mode else {
++            return false;
++        };
++        *focus = field.min(2);
++        self.focused_button = None;
++        true
++    }
++    /// Sets Create World's World Name (`seed` false) or Seed field to `text`, cut to the
++    /// field's 32 characters, as typing it would. False on another screen.
++    pub fn set_create_text(&mut self, seed: bool, text: &str) -> bool {
++        let Mode::Create { name, seed: s, .. } = &mut self.mode else {
++            return false;
++        };
++        let field = if seed { s } else { name };
++        *field = text.chars().filter(|c| !c.is_control()).take(32).collect();
++        true
++    }
++
+     /// The action and whether to play `AbstractWidget.playButtonClickSound`.
+     /// Navigation buttons can return `Action::None` while still sounding.
+     pub fn click(&mut self, x: f32, y: f32, size: (f32, f32)) -> (Action, bool) {
+diff --git a/crates/horizon-client/src/game/native_client_options.rs b/crates/horizon-client/src/game/native_client_options.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..0f6d4fb59fddc0d1026bcdc2d0914f41e262c98b
+--- /dev/null
++++ b/crates/horizon-client/src/game/native_client_options.rs
+@@ -0,0 +1,502 @@
++//! For a client mod that draws the options' pack screen, the mod browser and Create World its own
++//! way (pages of its own over the game's screens): what they show, as data, and what their
++//! buttons do, done as their own buttons do it (selections committed and resources reloaded on
++//! leaving, installs checked as the browser's, the world created by the screen itself).
++//! API @API:client_options@.
++use super::*;
++use horizon_client::mod_browser::ModBrowser;
++use horizon_client::options_ui::{Event as OptionsEvent, Page};
++use horizon_client::pack_screen::{Compat, PackAct, Source as PackSource};
++use horizon_client::text::Text;
++use horizon_client::title::Mode;
++use std::sync::Arc;
++
++/// One pack of the open pack screen (Resource Packs, or Create World's Data Packs).
++#[derive(Clone, Debug)]
++pub struct NativePack {
++    /// `file/<name>`, `vanilla`, `server/…`: what options.txt names it by.
++    pub id: String,
++    pub title: Text,
++    pub description: Text,
++    /// Its `pack.png`, RGBA, `icon_size` pixels square; None draws the game's unknown pack.
++    pub icon: Option<Arc<[u8]>>,
++    pub icon_size: u32,
++    pub compat: Compat,
++    pub source: PackSource,
++    /// Always selected (the vanilla pack).
++    pub required: bool,
++    /// Stays where it is in its list (a server's pack on top).
++    pub fixed: bool,
++    pub can_select: bool,
++    pub can_unselect: bool,
++    pub can_move_up: bool,
++    pub can_move_down: bool,
++    /// It has Polytone options (resource packs only).
++    pub has_options: bool,
++}
++
++/// The open pack screen as its two lists show it.
++#[derive(Clone, Debug)]
++pub struct NativePacks {
++    /// Create World's Data Packs rather than Resource Packs.
++    pub data: bool,
++    /// The selected packs, top (applied last, over the others) first.
++    pub selected: Vec<NativePack>,
++    /// The others, in the screen's order.
++    pub available: Vec<NativePack>,
++    /// The screen's confirmation for an incompatible pack is open (drawn by the game).
++    pub confirming: bool,
++    /// The selection changed since the screen opened: leaving applies it.
++    pub changed: bool,
++}
++
++/// One installed mod, as the Mods page lists it.
++#[derive(Clone, Debug, PartialEq)]
++pub struct NativeInstalledMod {
++    pub id: String,
++    pub title: String,
++    pub description: String,
++    pub on: bool,
++    /// Built into the game (a native mod).
++    pub native: bool,
++    /// Why it is not running, when it failed.
++    pub problem: Option<String>,
++    /// Loaded with `--dev-mod`: always on.
++    pub dev: bool,
++}
++
++/// The installed mods and the mod browser (Options > Mods > Browse mods).
++#[derive(Clone, Debug)]
++pub struct NativeMods {
++    pub installed: Vec<NativeInstalledMod>,
++    /// The registry's content mods this game installs, the install running and the last
++    /// install's outcome, as Browse Mods shows them (filled once Browse Mods was opened).
++    pub browser: ModBrowser,
++}
++
++/// What a mod's page over the options presses.
++#[derive(Clone, Debug, PartialEq)]
++pub enum NativeOptionsAct {
++    /// On the pack screen: a pack's card's arrows (an incompatible pack asks first).
++    Pack(String, PackAct),
++    /// On the pack screen: back to the selection it opened with (then `Leave` is a Cancel).
++    PackRestore,
++    /// On the pack screen: Open Pack Folder.
++    PackFolder,
++    /// Done, Back or Escape on the open page: leaving the pack screen applies its selection.
++    Leave,
++    /// Browse Mods' Install or Update of the registry's project `id`.
++    InstallMod(String),
++    /// The Mods page's switch of installed mod `id`.
++    ToggleMod(String),
++    /// The registry's page of project `id` on the website (through the game's link screen).
++    ModPage(String),
++    /// Reads the registry's index again (as Browse Mods does when it opens).
++    BrowseMods,
++    /// The mods folder in the file manager.
++    ModFolder,
++}
++
++/// Create World's choices, whatever tab shows them.
++#[derive(Clone, Debug, PartialEq)]
++pub struct NativeCreateWorld {
++    pub name: String,
++    pub seed: String,
++    /// 0 Survival, 1 Hardcore, 2 Creative.
++    pub game_mode: u8,
++    /// `peaceful`, `easy`, `normal` or `hard` (`options.difficulty.<name>`).
++    pub difficulty: &'static str,
++    /// Allow Commands, as it reads now (it follows the game mode until changed).
++    pub commands: bool,
++    /// The world type's name key (`generator.minecraft.normal`...).
++    pub world_type: &'static str,
++    /// The world type has a Customize screen (flat, single biome).
++    pub customizable: bool,
++    pub structures: bool,
++    pub bonus_chest: bool,
++    /// The data packs chosen so far.
++    pub data_packs: usize,
++    /// One of its own screens is over it (Game Rules, Experiments...) or the world is being
++    /// prepared: its buttons take no press.
++    pub covered: bool,
++}
++
++/// What a mod's Create World form does.
++#[derive(Clone, Debug, PartialEq)]
++pub enum NativeCreateAct {
++    Name(String),
++    Seed(String),
++    /// The keyboard to the World Name (0) or Seed (1) field, or neither (2): the game's own
++    /// field then takes typing, paste and the cursor keys.
++    Focus(u8),
++    /// A press on the screen's button `id` (`step` -1 steps a cycle button back): 20 Game Mode,
++    /// 23 Difficulty, 24 Allow Commands, 25 World Type, 26 Customize, 27 Generate Structures,
++    /// 28 Bonus Chest, 29 Game Rules, 30 Experiments, 31 Data Packs, 21 Create New World,
++    /// 22 Cancel.
++    Press(u8, i32),
++}
++
++/// What a mod asked for, done between frames.
++#[derive(Clone, Debug, PartialEq)]
++pub(super) enum OptionsRequest {
++    Options(NativeOptionsAct),
++    Create(NativeCreateAct),
++}
++
++/// An options page's id for mods: stable names, one per page.
++fn page_id(page: Page) -> &'static str {
++    match page {
++        Page::Main => "main",
++        Page::Video => "video",
++        Page::Sound => "sound",
++        Page::Controls => "controls",
++        Page::KeyBinds => "key_binds",
++        Page::Mouse => "mouse",
++        Page::Chat => "chat",
++        Page::Accessibility => "accessibility",
++        Page::Language => "language",
++        Page::Font => "font",
++        Page::Packs => "packs",
++        Page::Mods => "mods",
++        Page::ModBrowser => "mod_browser",
++        Page::ModProject => "mod_project",
++        Page::NativeMod(_) => "native_mod",
++        Page::Added(_) => "added",
++        Page::ShaderPacks => "shader_packs",
++        Page::ShaderOptions => "shader_options",
++        Page::PackOptions => "pack_options",
++        Page::Graphics => "graphics",
++        Page::GraphicsAdvanced => "graphics_advanced",
++        Page::GraphicsHdr => "graphics_hdr",
++        Page::HdrCalibration => "hdr_calibration",
++        Page::Controller => "controller",
++        Page::PadBinds => "pad_binds",
++        Page::Extras => "extras",
++        Page::Pvp => "pvp",
++        Page::Credits => "credits",
++        Page::Horizon => "horizon",
++        Page::Studio => "studio",
++        Page::Agent => "agent",
++        Page::Skin => "skin",
++        Page::Online => "online",
++        Page::SplitProfiles => "split_profiles",
++        Page::SplitSetup => "split_setup",
++        Page::Music => "music",
++    }
++}
++
++impl Game<'_> {
++    /// The options are the open screen.
++    fn options_on_top(&self) -> bool {
++        self.screen == Screen::Options && self.screen_hooks_open()
++    }
++    /// The open options page (screen id `options`): `packs` (Resource Packs), `data_packs`
++    /// (Create World's Data Packs), `mods`, `mod_browser` (Browse Mods), `mod_project`, `main`,
++    /// `video`, `sound`... one stable name per page; None when the options aren't open. On the
++    /// settings layout the pages of one settings screen share its id (`main`). Client only.
++    /// API @API:client_options@.
++    pub(super) fn native_options_page(&self) -> Option<&'static str> {
++        if !self.options_on_top() {
++            return None;
++        }
++        let ui = &self.ui.options;
++        Some(if ui.data_packs_open() {
++            "data_packs"
++        } else {
++            page_id(ui.page())
++        })
++    }
++    /// The open pack screen's packs (Resource Packs or Create World's Data Packs), as its two
++    /// lists hold them; None on any other page and before its first frame. Client only.
++    /// API @API:client_options@.
++    pub(super) fn native_options_packs(&self) -> Option<NativePacks> {
++        if !self.options_on_top() || self.ui.options.page() != Page::Packs {
++            return None;
++        }
++        let screen = self.ui.options.pack_screen.as_ref()?;
++        let pack = |id: &str| -> Option<NativePack> {
++            let info = screen.packs.iter().find(|p| p.id == id)?;
++            let (can_select, can_unselect, can_move_up, can_move_down) = screen.can(id);
++            Some(NativePack {
++                id: info.id.clone(),
++                title: info.title.clone(),
++                description: info.description.clone(),
++                icon: info.icon.clone(),
++                icon_size: horizon_client::hud::PACK_ICON_SIZE,
++                compat: info.compat,
++                source: info.source,
++                required: info.required,
++                fixed: info.fixed,
++                can_select,
++                can_unselect,
++                can_move_up,
++                can_move_down,
++                has_options: screen.with_options.contains(&info.id),
++            })
++        };
++        Some(NativePacks {
++            data: self.ui.options.data_packs_open(),
++            selected: screen
++                .model
++                .selected
++                .iter()
++                .filter_map(|p| pack(&p.id))
++                .collect(),
++            available: screen
++                .model
++                .unselected
++                .iter()
++                .filter_map(|p| pack(&p.id))
++                .collect(),
++            confirming: screen.confirming(),
++            changed: screen.changed,
++        })
++    }
++    /// The installed mods and Browse Mods' state, whatever options page is open; None when the
++    /// options aren't. Client only. API @API:client_options@.
++    pub(super) fn native_options_mods(&self) -> Option<NativeMods> {
++        if !self.options_on_top() {
++            return None;
++        }
++        let mods = &self.settings.mods;
++        Some(NativeMods {
++            installed: mods
++                .installed
++                .iter()
++                .enumerate()
++                .map(|(i, m)| NativeInstalledMod {
++                    id: m.id.clone(),
++                    title: m.title.clone(),
++                    description: m.description.clone(),
++                    on: mods.is_on(i),
++                    native: m.native.is_some(),
++                    problem: m.problem.clone(),
++                    dev: m.dev,
++                })
++                .collect(),
++            browser: self.ui.options.mod_browser.clone(),
++        })
++    }
++    /// Does `act` on the open options page as its own button does, before the next frame (a
++    /// later act of the same event after it). False when the options aren't open or `act` is
++    /// for another page (a pack act off the pack screen). Client only. API @API:client_options@.
++    pub(super) fn native_options_act(&self, act: NativeOptionsAct) -> bool {
++        if !self.options_on_top() {
++            return false;
++        }
++        let packs = self.ui.options.page() == Page::Packs;
++        let ok = match &act {
++            NativeOptionsAct::Pack(..)
++            | NativeOptionsAct::PackRestore
++            | NativeOptionsAct::PackFolder => packs,
++            _ => true,
++        };
++        if ok {
++            self.options_requests
++                .borrow_mut()
++                .push(OptionsRequest::Options(act));
++        }
++        ok
++    }
++    /// Create World's choices (screen id `world_create`); None on any other screen. Client
++    /// only. API @API:client_options@.
++    pub(super) fn native_create_world(&self) -> Option<NativeCreateWorld> {
++        if self.screen != Screen::Playing || !self.screen_hooks_open() {
++            return None;
++        }
++        let title = self.title.as_ref()?;
++        let Mode::Create {
++            name,
++            seed,
++            creative,
++            options,
++            ..
++        } = &title.mode
++        else {
++            return None;
++        };
++        use horizon_client::save::WorldPreset;
++        Some(NativeCreateWorld {
++            name: name.clone(),
++            seed: seed.clone(),
++            game_mode: match (*creative, options.hardcore) {
++                (_, true) => 1,
++                (true, false) => 2,
++                (false, false) => 0,
++            },
++            difficulty: horizon_client::title::DIFFICULTIES[options.difficulty()],
++            commands: options.commands(*creative),
++            world_type: options.world_type.label(),
++            customizable: matches!(
++                options.world_type,
++                WorldPreset::Flat | WorldPreset::SingleBiomeSurface
++            ),
++            structures: options.structures,
++            bonus_chest: options.bonus_chest(),
++            data_packs: options.data_packs.len(),
++            covered: title.create_covered(),
++        })
++    }
++    /// Does `act` on Create World as its own field or button does, before the next frame
++    /// (presses as [`horizon_client::title::Title::press_create`] takes them). False on another
++    /// screen. Client only. API @API:client_options@.
++    pub(super) fn native_create_world_act(&self, act: NativeCreateAct) -> bool {
++        if self.native_create_world().is_none() {
++            return false;
++        }
++        self.options_requests
++            .borrow_mut()
++            .push(OptionsRequest::Create(act));
++        true
++    }
++    /// The clicks a controller (its A button over a widget) or the keyboard's focus makes up reach
++    /// the screens' mouse hooks too (`on`), at the point they press, for a mod that draws widgets
++    /// of its own over a screen: a controller then presses them, not the screen underneath. Off
++    /// by default (a made-up click is not the mouse); a mod's own `native_press_at` never reaches
++    /// them. Holds for this window until changed. Client only. API @API:client_options@.
++    pub(super) fn native_pad_clicks_to_hooks(&self, on: bool) {
++        self.pad_clicks_to_hooks.set(on);
++    }
++    /// Runs what the helpers above queued, in order, between frames.
++    pub(super) fn run_options_requests(&mut self, event_loop: &dyn EventLoopCtl) -> Result<()> {
++        let requests = std::mem::take(&mut *self.options_requests.borrow_mut());
++        for request in requests {
++            match request {
++                OptionsRequest::Options(act) => {
++                    if self.screen != Screen::Options {
++                        continue;
++                    }
++                    let events = self.options_events(act);
++                    if !events.is_empty() {
++                        self.handle_option_events(events)?;
++                    }
++                }
++                OptionsRequest::Create(act) => {
++                    let Some(title) = self.title.as_mut() else {
++                        continue;
++                    };
++                    match act {
++                        NativeCreateAct::Name(text) => {
++                            title.set_create_text(false, &text);
++                        }
++                        NativeCreateAct::Seed(text) => {
++                            title.set_create_text(true, &text);
++                        }
++                        NativeCreateAct::Focus(field) => {
++                            title.set_create_focus(field);
++                        }
++                        NativeCreateAct::Press(id, step) => {
++                            if let Some(action) = title.press_create(id, step) {
++                                self.audio.play_button_click();
++                                self.title_action(event_loop, action)?;
++                            }
++                        }
++                    }
++                }
++            }
++        }
++        Ok(())
++    }
++    /// The options' events `act` makes, as the press of its button would.
++    fn options_events(&mut self, act: NativeOptionsAct) -> Vec<OptionsEvent> {
++        let ui = &mut self.ui.options;
++        let s = &mut self.settings;
++        match act {
++            NativeOptionsAct::Pack(id, pack_act) => {
++                if ui.page() == Page::Packs
++                    && let Some(screen) = &mut ui.pack_screen
++                {
++                    screen.act(&id, pack_act);
++                }
++                Vec::new()
++            }
++            NativeOptionsAct::PackRestore => {
++                if ui.page() == Page::Packs
++                    && let Some(screen) = &mut ui.pack_screen
++                {
++                    screen.restore();
++                }
++                Vec::new()
++            }
++            NativeOptionsAct::PackFolder if ui.page() == Page::Packs => {
++                vec![ui.pack_folder_event()]
++            }
++            NativeOptionsAct::PackFolder => Vec::new(),
++            NativeOptionsAct::Leave => {
++                let mut events = vec![OptionsEvent::ButtonClick];
++                events.extend(ui.back(s));
++                events
++            }
++            NativeOptionsAct::InstallMod(id) => vec![OptionsEvent::InstallMod(id)],
++            NativeOptionsAct::ToggleMod(id) => {
++                match s.mods.installed.iter().position(|m| m.id == id && !m.dev) {
++                    Some(i) => {
++                        s.mods.toggle(i);
++                        vec![OptionsEvent::Changed]
++                    }
++                    None => Vec::new(),
++                }
++            }
++            NativeOptionsAct::ModPage(id) => ui
++                .mod_browser
++                .listing(&id)
++                .map(|l| vec![OptionsEvent::OpenModPage(l.page.clone())])
++                .unwrap_or_default(),
++            NativeOptionsAct::BrowseMods => vec![OptionsEvent::BrowseMods],
++            NativeOptionsAct::ModFolder => vec![OptionsEvent::OpenModFolder],
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn every_page_has_its_own_id() {
++        let pages = [
++            Page::Main,
++            Page::Video,
++            Page::Sound,
++            Page::Controls,
++            Page::KeyBinds,
++            Page::Mouse,
++            Page::Chat,
++            Page::Accessibility,
++            Page::Language,
++            Page::Font,
++            Page::Packs,
++            Page::Mods,
++            Page::ModBrowser,
++            Page::ModProject,
++            Page::NativeMod(0),
++            Page::Added(0),
++            Page::ShaderPacks,
++            Page::ShaderOptions,
++            Page::PackOptions,
++            Page::Graphics,
++            Page::GraphicsAdvanced,
++            Page::GraphicsHdr,
++            Page::HdrCalibration,
++            Page::Controller,
++            Page::PadBinds,
++            Page::Extras,
++            Page::Pvp,
++            Page::Credits,
++            Page::Horizon,
++            Page::Studio,
++            Page::Agent,
++            Page::Skin,
++            Page::Online,
++            Page::SplitProfiles,
++            Page::SplitSetup,
++            Page::Music,
++        ];
++        let ids: std::collections::BTreeSet<&str> = pages.iter().map(|p| page_id(*p)).collect();
++        assert_eq!(ids.len(), pages.len());
++        assert!(
++            !ids.contains("data_packs"),
++            "kept for Create World's Data Packs"
++        );
++    }
++}
+diff --git a/tools/native-hook-fragments/client_options.json b/tools/native-hook-fragments/client_options.json
+new file mode 100644
+index 0000000000000000000000000000000000000000..50f7fabad802c87a696d7c5aa320cb0da7c30db4
+--- /dev/null
++++ b/tools/native-hook-fragments/client_options.json
+@@ -0,0 +1,38 @@
++{
++  "hooks": [],
++  "helpers": [
++    {
++      "name": "options_page",
++      "target": "horizon_client::game::native_client_options::Game<'_>::native_options_page"
++    },
++    {
++      "name": "options_packs",
++      "target": "horizon_client::game::native_client_options::Game<'_>::native_options_packs"
++    },
++    {
++      "name": "options_mods",
++      "target": "horizon_client::game::native_client_options::Game<'_>::native_options_mods"
++    },
++    {
++      "name": "options_act",
++      "target": "horizon_client::game::native_client_options::Game<'_>::native_options_act"
++    },
++    {
++      "name": "create_world",
++      "target": "horizon_client::game::native_client_options::Game<'_>::native_create_world"
++    },
++    {
++      "name": "create_world_act",
++      "target": "horizon_client::game::native_client_options::Game<'_>::native_create_world_act"
++    },
++    {
++      "name": "pad_clicks_to_hooks",
++      "target": "horizon_client::game::native_client_options::Game<'_>::native_pad_clicks_to_hooks"
++    }
++  ],
++  "rust_summary": "a client mod that draws the options' pack screen, the mod browser and Create World its own way: the open options page (`native_options_page`), the pack screen's two lists (`native_options_packs`), the installed mods and Browse Mods' state (`native_options_mods`), Create World's choices (`native_create_world`), and their buttons pressed as their own (`native_options_act`, `native_create_world_act`).",
++  "doc_summary": "`native_options_page()` names the open options page (`packs`, `data_packs`, `mods`, `mod_browser`...). `native_options_packs()` gives the open pack screen's selected packs (top first) and available ones (id, title, description, icon, compatibility, source, required, fixed, what can be done to it), whether its incompatible-pack confirmation is open and whether the selection changed. `native_options_mods()` gives the installed mods (id, title, description, on, native, problem, dev) and Browse Mods' listings, install and outcome. `native_options_act(act)` does a pack card's arrows, restores the opening selection, opens the pack or mods folder, leaves the page (applying the selection), installs or updates a registry mod, switches an installed mod, opens a project's page or reads the registry again, as their own buttons. `native_create_world()` gives Create World's name, seed, game mode, difficulty, commands, world type, structures, bonus chest and data packs, and `native_create_world_act(act)` types the name or seed and presses its buttons by id. `native_pad_clicks_to_hooks(true)` lets the clicks a controller or the keyboard's focus makes up reach the screens' mouse hooks, so a mod's own widgets take a controller's press. All presses run before the next frame. Bundles need \"hooks\": @API:client_options@.",
++  "comments": [
++    "crates/horizon-client/src/game/native_client_options.rs"
++  ]
++}
+-- 
+2.47.0
+
