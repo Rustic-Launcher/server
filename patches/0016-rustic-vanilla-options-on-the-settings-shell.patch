@@ -1,0 +1,865 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: BouBou <69978359+BouBouw@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 23:30:00 +0100
+Subject: [PATCH] rustic: vanilla options on the settings shell
+
+options_shell: vanilla's Options and its pages (Music & Sounds, Controls with
+Mouse Settings, Chat, Accessibility with Font, Skin Customization, Online) as the
+pages of one settings_shell screen, each row the vanilla option itself, for an
+executable that turns it on (install(on, language)); it may leave the Language page
+out and name the settings screens' mark (set_brand). Off by default: nothing
+changes. Rustic ADR 0014, U18.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/horizon-client-render/src/lib.rs       |   1 +
+ .../src/options_shell.rs                      | 569 ++++++++++++++++++
+ .../horizon-client-render/src/options_ui.rs   |  26 +-
+ .../src/settings_shell.rs                     |  63 +-
+ crates/horizon-client/src/client_lib.rs       |  14 +-
+ 5 files changed, 657 insertions(+), 16 deletions(-)
+ create mode 100644 crates/horizon-client-render/src/options_shell.rs
+
+diff --git a/crates/horizon-client-render/src/lib.rs b/crates/horizon-client-render/src/lib.rs
+index c5aa8c5e3be018ea5bc4afe808ce53be0286af4e..b0072afc207e4e47387145914eef030eb98c09ff 100644
+--- a/crates/horizon-client-render/src/lib.rs
++++ b/crates/horizon-client-render/src/lib.rs
+@@ -86,6 +86,7 @@ pub mod multiline_edit;
+ pub mod native_emissive;
+ pub mod options_file;
+ pub mod options_fixes;
++pub mod options_shell;
+ pub mod options_ui;
+ pub mod overlay;
+ pub mod pack_browser;
+diff --git a/crates/horizon-client-render/src/options_shell.rs b/crates/horizon-client-render/src/options_shell.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..e1785ffe09ef543dfc28c136bf28fa6ed7de939f
+--- /dev/null
++++ b/crates/horizon-client-render/src/options_shell.rs
+@@ -0,0 +1,569 @@
++//! Vanilla's Options and its pages on the settings shell (`settings_shell`), for an executable
++//! that wants every settings page in the one layout Horizon's own screens have (the page list
++//! down the left, searchable rows, the strip that describes the hovered one): the Options page's
++//! own settings and links, Music & Sounds, Controls (with Mouse Settings), Chat, Accessibility
++//! (with the font settings), Skin Customization and Online become the pages of one screen. Each
++//! row is the vanilla option itself (`Opt`: its label, slider, steps and tooltip), so what a row
++//! does is what its button or slider did. The executable turns it on once at startup
++//! ([`install`]); with it off nothing changes. It may also leave the Language page out (its own
++//! language screen stands in for it).
++use crate::{
++    lang,
++    options_ui::{self, Event, Page},
++    settings::{SOUND_SOURCES, Settings},
++    settings_shell::{self as shell, Group, Output, Row, Screen, Sheet, Value},
++};
++use std::sync::OnceLock;
++use std::sync::atomic::{AtomicU8, Ordering};
++
++pub use crate::settings::Opt;
++
++/// Bit 0: on. Bit 1: the Language page is left out. Bit 2: page lists scroll.
++static MODE: AtomicU8 = AtomicU8::new(0);
++/// Every settings screen's page list stays a column that scrolls when its pages don't fit, never
++/// the collapsed `< Page >` row.
++static PAGES_SCROLL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
++
++/// The executable's own wording for some of these screens' texts (by language key: the Mods page's
++/// empty line), in the game's language; None keeps Horizon's.
++static TEXTS: OnceLock<fn(&str) -> Option<String>> = OnceLock::new();
++
++/// Page lists of every settings screen scroll rather than collapse (`on`).
++pub fn set_pages_scroll(on: bool) {
++    PAGES_SCROLL.store(on, Ordering::Relaxed);
++}
++
++/// Whether page lists scroll rather than collapse.
++pub fn pages_scroll() -> bool {
++    PAGES_SCROLL.load(Ordering::Relaxed)
++}
++
++/// Gives the executable's wording for texts of these screens, once (the first given is kept).
++pub fn set_texts(texts: fn(&str) -> Option<String>) -> bool {
++    TEXTS.set(texts).is_ok()
++}
++
++/// Text `key`, the executable's wording when it gives one.
++fn text(key: &str) -> String {
++    TEXTS
++        .get()
++        .and_then(|f| f(key))
++        .unwrap_or_else(|| lang::get(key))
++}
++
++/// Lays vanilla's Options out on the settings shell (`on`), and leaves the Language page out of
++/// it and of every way to it (`language`: false). Call it before the options open (an executable
++/// at startup); a later call changes it for the next page opened.
++pub fn install(on: bool, language: bool) {
++    MODE.store(u8::from(on) | (u8::from(!language) << 1), Ordering::Relaxed);
++}
++
++static BRAND: OnceLock<&'static str> = OnceLock::new();
++
++/// The name over every settings screen's title, by the mark ("Horizon" unless the executable
++/// gives its own, once, before the first frame: the first given is kept).
++pub fn set_brand(name: &'static str) -> bool {
++    BRAND.set(name).is_ok()
++}
++
++/// The name the settings screens show by their mark.
++pub fn brand() -> &'static str {
++    BRAND.get().copied().unwrap_or("Horizon")
++}
++
++/// Whether vanilla's Options are on the settings shell.
++pub fn on() -> bool {
++    MODE.load(Ordering::Relaxed) & 1 != 0
++}
++
++/// Whether the Language page can be opened.
++pub fn language_shown() -> bool {
++    MODE.load(Ordering::Relaxed) & 2 == 0
++}
++
++/// The shell's page that shows options page `page`, when the shell is on and has it.
++pub(crate) fn sheet_of(page: Page) -> Option<Page> {
++    if !on() {
++        return None;
++    }
++    match page {
++        Page::Main
++        | Page::Sound
++        | Page::Controls
++        | Page::Chat
++        | Page::Accessibility
++        | Page::Skin
++        | Page::Online
++        | Page::Mods => Some(page),
++        Page::Mouse => Some(Page::Controls),
++        Page::Font if !language_shown() => Some(Page::Accessibility),
++        _ => None,
++    }
++}
++
++/// A row: a vanilla option, or a link to another options page.
++#[derive(Clone, Copy, Debug, PartialEq)]
++pub(crate) enum OptRow {
++    Opt(Opt),
++    Open(Page),
++    /// Installed mod `.0`, on or off.
++    Mod(usize),
++    /// Its settings page.
++    ModSettings(usize),
++    /// The mods folder, in the file manager.
++    ModFolder,
++}
++
++/// The group of the Options page's own settings ("Preferences").
++const PREFERENCES: &str = "options.video.preferences.header";
++/// The group of the links to other pages ("More").
++const MORE: &str = "createWorld.tab.more.title";
++
++/// The screen: every page reads the settings; a slider keeps the volume it moved for its
++/// release.
++#[derive(Default)]
++pub(crate) struct OptionsScreen {
++    /// The window's size in pixels, which a row's step can need: the options screen sets it.
++    pub(crate) framebuffer: [i32; 2],
++    /// A split-screen guest has no Language or Resource Packs (they are the host's).
++    pub(crate) split_guest: bool,
++    /// The volumes a drag changed, told once it lets go.
++    volumes: Vec<(usize, f32)>,
++    /// In a world, a content mod can't be switched (its content is loaded) unless it is live.
++    pub(crate) in_world: bool,
++    pub(crate) mods_live: std::collections::BTreeSet<String>,
++}
++
++/// The Mods page: each installed mod on or off (as its button was), its settings, then Browse
++/// Mods and the mods folder.
++fn mod_groups(screen: &OptionsScreen, s: &Settings) -> Vec<Group<OptRow>> {
++    let mut rows = Vec::new();
++    for (i, m) in s.mods.installed.iter().enumerate() {
++        let frozen = screen.in_world && m.native.is_none() && !screen.mods_live.contains(&m.id);
++        let mut about = m.description.clone();
++        let status = if m.problem.as_deref() == Some(crate::mod_list::NOT_BUILT) {
++            Some("horizon.mods.not_built")
++        } else if m.problem.is_some() {
++            Some("horizon.mods.stopped")
++        } else if m.dev {
++            Some("horizon.mods.dev")
++        } else if frozen {
++            Some("horizon.mods.in_world")
++        } else {
++            None
++        };
++        if let Some(key) = status {
++            about = format!("{}{about}", lang::get(key).trim_start());
++        }
++        let live = !(m.dev || m.id.is_empty() || frozen);
++        rows.push(
++            Row::new(
++                OptRow::Mod(i),
++                m.title.clone(),
++                Value::Switch(s.mods.is_on(i)),
++            )
++            .about(about)
++            .live(live),
++        );
++        if m.native
++            .as_ref()
++            .is_some_and(|page| !page.keys.is_empty() || !page.buttons.is_empty())
++        {
++            let name = format!("{} \u{b7} {}", m.title, plain("horizon.mods.settings"));
++            rows.push(Row::new(
++                OptRow::ModSettings(i),
++                name,
++                Value::Open("\u{203a}".into()),
++            ));
++        }
++    }
++    if rows.is_empty() {
++        rows.push(Row::new(OptRow::ModFolder, text("horizon.mods.empty"), Value::Note).live(false));
++    }
++    vec![
++        group("horizon.pages.mods", rows),
++        group(
++            MORE,
++            vec![
++                link(Page::ModBrowser, "horizon.mods.browse", ""),
++                Row::new(
++                    OptRow::ModFolder,
++                    plain("horizon.mods.open_folder"),
++                    Value::Open("\u{203a}".into()),
++                ),
++            ],
++        ),
++    ]
++}
++
++/// A label without vanilla's "..." of a button that opens a page.
++fn plain(key: &str) -> String {
++    let t = lang::get(key);
++    t.trim_end_matches('…')
++        .trim_end_matches("...")
++        .trim()
++        .to_owned()
++}
++
++/// The row of option `opt`: its name and value as its button reads, a slider, a switch or a
++/// choice, its tooltip as its description.
++fn opt_row(opt: Opt, s: &Settings) -> Row<OptRow> {
++    let (name, value) = shell::name_and_value(&opt.label(s).plain());
++    let on = lang::get("options.on");
++    let off = lang::get("options.off");
++    let value = match (opt.slider_position(s), value) {
++        (Some(position), v) => Value::Slider {
++            position,
++            steps: opt.slider_steps(),
++            text: v.unwrap_or_default(),
++        },
++        (None, Some(v)) if v == on => Value::Switch(true),
++        (None, Some(v)) if v == off => Value::Switch(false),
++        (None, v) => v.map_or(Value::Press, Value::Choice),
++    };
++    let key = opt.tooltip_key(s);
++    let about = if lang::has(&key) {
++        lang::get(&key)
++    } else {
++        String::new()
++    };
++    // The narrator's button works only while the narrator does.
++    let live = opt.available() && (opt != Opt::Narrator || horizon_narrator::is_active());
++    let row = Row::new(OptRow::Opt(opt), name, value)
++        .about(about)
++        .live(live);
++    if live {
++        row
++    } else {
++        row.blocked(Some(lang::get("horizon.options.unavailable")))
++    }
++}
++
++/// A row that opens page `page`, named by `key`.
++fn link(page: Page, key: &str, about: &str) -> Row<OptRow> {
++    let row = Row::new(
++        OptRow::Open(page),
++        plain(key),
++        Value::Open("\u{203a}".into()),
++    );
++    if about.is_empty() || !lang::has(about) {
++        row
++    } else {
++        row.about(lang::get(about))
++    }
++}
++
++fn group(name: &'static str, rows: Vec<Row<OptRow>>) -> Group<OptRow> {
++    Group { name, rows }
++}
++
++fn opts(list: &[Opt], s: &Settings) -> Vec<Row<OptRow>> {
++    list.iter().map(|o| opt_row(*o, s)).collect()
++}
++
++impl Screen for OptionsScreen {
++    type Page = Page;
++    type Row = OptRow;
++    fn title(&self) -> &'static str {
++        "options.title"
++    }
++    fn note_lines(&self) -> usize {
++        3
++    }
++    fn stamp(&self, s: &Settings) -> u64 {
++        shell::stamp_of(&(
++            format!("{:?}", s.file),
++            s.extras.music_page,
++            horizon_narrator::is_active(),
++            self.split_guest,
++            s.mods
++                .installed
++                .iter()
++                .enumerate()
++                .map(|(i, m)| (m.title.clone(), s.mods.is_on(i), m.problem.clone()))
++                .collect::<Vec<_>>(),
++            self.in_world,
++        ))
++    }
++    fn sheets(&self, s: &Settings) -> Vec<Sheet<Page, OptRow>> {
++        let general = vec![opt_row(Opt::Fov, s)];
++        let mut pages = vec![link(Page::Graphics, "options.video", "")];
++        if !self.split_guest {
++            pages.push(link(Page::Packs, "options.resourcepack", ""));
++            if language_shown() {
++                pages.push(link(
++                    Page::Language,
++                    "options.language",
++                    "options.language.tooltip",
++                ));
++            }
++        }
++        if options_ui::horizon_extras() {
++            pages.push(link(
++                Page::Horizon,
++                "horizon.pages.open.horizon_settings",
++                "",
++            ));
++        }
++        pages.push(link(Page::Credits, "options.credits_and_attribution", ""));
++        let mut sound: Vec<Opt> = (0..SOUND_SOURCES.len()).map(Opt::Volume).collect();
++        sound.extend([
++            Opt::ShowSubtitles,
++            Opt::DirectionalAudio,
++            Opt::MusicFrequency,
++            Opt::MusicToast,
++            Opt::SoundDevice,
++        ]);
++        let mut sound = vec![group("options.sounds.title", opts(&sound, s))];
++        if s.extras.music_page {
++            sound.push(group(
++                "horizon.pages.music",
++                vec![link(Page::Music, "horizon.pages.open.music", "")],
++            ));
++        }
++        let controls = vec![
++            group(
++                "options.mouse_settings.title",
++                opts(options_ui::MOUSE_OPTIONS, s),
++            ),
++            group(
++                "controls.title",
++                opts(&options_ui::vanilla_control_options(), s),
++            ),
++            group(
++                MORE,
++                vec![
++                    link(Page::KeyBinds, "controls.keybinds", ""),
++                    link(Page::Controller, "horizon.pages.open.controller", ""),
++                ],
++            ),
++        ];
++        let mut accessibility = vec![group(
++            "options.accessibility.title",
++            opts(options_ui::ACCESSIBILITY_OPTIONS, s),
++        )];
++        if !language_shown() {
++            accessibility.push(group(
++                "options.font",
++                opts(&[Opt::ForceUnicode, Opt::JapaneseGlyphs], s),
++            ));
++        }
++        accessibility.push(group(
++            MORE,
++            vec![link(Page::Controls, "options.controls", "")],
++        ));
++        let mut skin: Vec<Opt> = (0..options_ui::MODEL_PART_KEYS.len())
++            .map(Opt::ModelPart)
++            .collect();
++        skin.extend([Opt::SkinLayers3d, Opt::MainHand]);
++        let online = vec![
++            group(
++                "options.online.friends.header",
++                opts(&[Opt::InGameNotification, Opt::SharePresence], s),
++            ),
++            group(
++                "options.online.servers.header",
++                opts(&[Opt::AllowServerListing], s),
++            ),
++            group(
++                "options.online.realms.header",
++                opts(&[Opt::RealmsNotifications], s),
++            ),
++        ];
++        let chat = vec![group(
++            "options.chat.title",
++            opts(
++                &[
++                    Opt::ChatVisibility,
++                    Opt::ChatColors,
++                    Opt::ChatLinks,
++                    Opt::ChatLinksPrompt,
++                    Opt::ChatOpacity,
++                    Opt::TextBackgroundOpacity,
++                    Opt::ChatScale,
++                    Opt::ChatLineSpacing,
++                    Opt::ChatWidth,
++                    Opt::ChatHeightFocused,
++                    Opt::ChatHeightUnfocused,
++                    Opt::Narrator,
++                    Opt::AutoSuggestions,
++                    Opt::HideMatchedNames,
++                    Opt::ReducedDebugInfo,
++                    Opt::OnlySecureChat,
++                    Opt::SaveChatDrafts,
++                ],
++                s,
++            ),
++        )];
++        let sheet = |id: Page, key: &str, about: &str, groups: Vec<Group<OptRow>>| {
++            Sheet::new(
++                id,
++                plain(key),
++                if lang::has(about) {
++                    lang::get(about)
++                } else {
++                    String::new()
++                },
++                groups,
++            )
++        };
++        vec![
++            sheet(
++                Page::Main,
++                "options.title",
++                "",
++                vec![group(PREFERENCES, general), group(MORE, pages)],
++            ),
++            sheet(Page::Sound, "options.sounds", "", sound),
++            sheet(Page::Controls, "options.controls", "", controls),
++            sheet(Page::Chat, "options.chat", "", chat),
++            sheet(
++                Page::Accessibility,
++                "options.accessibility",
++                "options.accessibility.tooltip",
++                accessibility,
++            ),
++            sheet(
++                Page::Skin,
++                "options.skinCustomisation",
++                "",
++                vec![group("options.skinCustomisation.title", opts(&skin, s))],
++            ),
++            sheet(Page::Online, "options.online", "", online),
++            sheet(Page::Mods, "horizon.pages.mods", "", mod_groups(self, s)),
++        ]
++    }
++    fn press(&mut self, s: &mut Settings, row: OptRow, back: bool) -> Vec<Output> {
++        match row {
++            OptRow::Open(page) => {
++                let mut out = Vec::new();
++                if page == Page::Music {
++                    out.push(Output::Event(Event::ListMusicTracks));
++                }
++                if page == Page::ModBrowser {
++                    out.push(Output::Event(Event::BrowseMods));
++                }
++                out.push(Output::Push(page));
++                out
++            }
++            OptRow::Opt(opt) => cycle(s, opt, back, self.framebuffer),
++            OptRow::Mod(i) => {
++                s.mods.toggle(i);
++                vec![Output::Event(Event::Changed)]
++            }
++            OptRow::ModSettings(i) => vec![
++                Output::Push(Page::NativeMod(i)),
++                Output::Event(Event::NativeSettings(i)),
++            ],
++            OptRow::ModFolder => vec![Output::Event(Event::OpenModFolder)],
++        }
++    }
++    /// A link to another of this screen's pages opens it here (Escape comes back).
++    fn link(&self, row: OptRow) -> Option<Page> {
++        match row {
++            OptRow::Open(page) if sheet_of(page) == Some(page) => Some(page),
++            _ => None,
++        }
++    }
++    fn slide(&mut self, s: &mut Settings, row: OptRow, position: f32) {
++        if let OptRow::Opt(opt) = row {
++            let volume = |s: &Settings| match opt {
++                Opt::Volume(0) => Some(s.master_volume),
++                Opt::Volume(i) => Some(s.volumes[i]),
++                _ => None,
++            };
++            let before = volume(s);
++            options_ui::set_slider(opt, s, position);
++            if let (Opt::Volume(source), Some(after)) = (opt, volume(s))
++                && before != Some(after)
++            {
++                self.volumes.retain(|(i, _)| *i != source);
++                self.volumes.push((source, after));
++            }
++        }
++    }
++    fn slider_released(&mut self) -> Vec<Output> {
++        let mut out = vec![Output::Event(Event::Changed)];
++        out.extend(
++            self.volumes
++                .drain(..)
++                .map(|(i, v)| Output::Event(Event::Volume(i, v))),
++        );
++        out
++    }
++    fn wheel_step(&mut self, s: &mut Settings, row: OptRow, back: bool) -> Option<Vec<Output>> {
++        match row {
++            OptRow::Opt(opt) if opt.slider_position(s).is_none() => {
++                Some(cycle(s, opt, back, self.framebuffer))
++            }
++            _ => None,
++        }
++    }
++}
++
++/// A press on an option's row, as its button's (`OptionsUi::cycle_option`).
++fn cycle(s: &mut Settings, opt: Opt, back: bool, framebuffer: [i32; 2]) -> Vec<Output> {
++    opt.cycle(s, back, framebuffer);
++    let mut out = vec![Output::Event(Event::Changed)];
++    if opt == Opt::HighContrast {
++        // Options.highContrast: the built-in pack follows the option.
++        let on = s.resource_packs.iter().any(|id| id == "high_contrast");
++        if on != s.high_contrast {
++            s.resource_packs.retain(|id| id != "high_contrast");
++            if s.high_contrast {
++                s.resource_packs.push("high_contrast".into());
++            }
++            out.push(Output::Event(Event::Packs(s.resource_packs.clone())));
++        }
++    }
++    if opt == Opt::Narrator {
++        out.push(Output::Event(Event::Narrator));
++    }
++    out
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn the_options_pages_become_one_screen_and_language_can_be_left_out() {
++        install(false, true);
++        assert_eq!(sheet_of(Page::Sound), None);
++        install(true, false);
++        assert_eq!(sheet_of(Page::Mouse), Some(Page::Controls));
++        assert_eq!(sheet_of(Page::Font), Some(Page::Accessibility));
++        assert_eq!(sheet_of(Page::Graphics), None);
++        let s = Settings::default();
++        let screen = OptionsScreen::default();
++        let sheets = screen.sheets(&s);
++        assert_eq!(sheets.len(), 8);
++        let links: Vec<OptRow> = sheets
++            .iter()
++            .flat_map(|sh| sh.groups.iter().flat_map(|g| g.rows.iter().map(|r| r.id)))
++            .collect();
++        assert!(!links.contains(&OptRow::Open(Page::Language)));
++        assert!(links.contains(&OptRow::Opt(Opt::Fov)));
++        assert!(links.contains(&OptRow::Opt(Opt::Volume(0))));
++        assert!(links.contains(&OptRow::Open(Page::Graphics)));
++        // Never twice on one page. Some options show on two pages, as in the game's own
++        // options (the narrator, subtitles and chat text settings also sit on Accessibility).
++        for sheet in &sheets {
++            let mut seen = Vec::new();
++            for row in sheet.groups.iter().flat_map(|g| g.rows.iter()) {
++                if let OptRow::Opt(o) = row.id {
++                    assert!(!seen.contains(&o), "{o:?} twice on one page");
++                    seen.push(o);
++                }
++            }
++        }
++        install(true, true);
++        let sheets = screen.sheets(&s);
++        assert!(sheets.iter().any(|sh| {
++            sh.groups
++                .iter()
++                .any(|g| g.rows.iter().any(|r| r.id == OptRow::Open(Page::Language)))
++        }));
++        install(false, true);
++    }
++}
+diff --git a/crates/horizon-client-render/src/options_ui.rs b/crates/horizon-client-render/src/options_ui.rs
+index 04d908498c76a0881812d650d2070e891d58a385..8a278711efdd14161ec41aead676b6d28ff33d92 100644
+--- a/crates/horizon-client-render/src/options_ui.rs
++++ b/crates/horizon-client-render/src/options_ui.rs
+@@ -26,7 +26,7 @@ fn tr(key: &str) -> Text {
+ /// so once at startup: the Options screen then has vanilla's Telemetry Data slot instead of
+ /// Horizon Settings and Mods, and Credits & Attribution names the official build.
+ pub static HORIZON_EXTRAS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+-fn horizon_extras() -> bool {
++pub(crate) fn horizon_extras() -> bool {
+     HORIZON_EXTRAS.load(std::sync::atomic::Ordering::Relaxed)
+ }
+ fn generic(caption: &str, value: Text) -> Text {
+@@ -85,7 +85,7 @@ pub(crate) enum Kind {
+     Cycle,
+ }
+ /// `PlayerModelPart` keys, in vanilla's bit order (`modelPart_*` in options.txt).
+-const MODEL_PART_KEYS: [&str; 7] = [
++pub(crate) const MODEL_PART_KEYS: [&str; 7] = [
+     "modelPart_cape",
+     "modelPart_jacket",
+     "modelPart_left_sleeve",
+@@ -408,7 +408,7 @@ impl Opt {
+         }
+     }
+     /// OptionInstance's static or value-dependent tooltip translation.
+-    fn tooltip_key(self, s: &Settings) -> String {
++    pub(crate) fn tooltip_key(self, s: &Settings) -> String {
+         let key = match self {
+             Opt::InactivityFps => {
+                 if s.inactivity_fps_limit == "minimized" {
+@@ -1683,6 +1683,9 @@ pub struct OptionsUi {
+     controller: shell::Shell<crate::controller_ui::ControllerScreen>,
+     /// Horizon Extras, on the settings shell.
+     extras: shell::Shell<crate::extras_ui::ExtrasScreen>,
++    /// Vanilla's Options and its pages, on the settings shell when the executable asks
++    /// (`options_shell::install`).
++    options: shell::Shell<crate::options_shell::OptionsScreen>,
+     /// Shaders: the shader packs and the picked one's options, on the settings shell.
+     shader: shell::Shell<crate::shader_ui::ShaderScreen>,
+     /// The Pack Options page, and the packs' Polytone config entries by pack id (the game
+@@ -1767,6 +1770,7 @@ impl Default for OptionsUi {
+             graphics: Default::default(),
+             controller: Default::default(),
+             extras: Default::default(),
++            options: Default::default(),
+             shader: Default::default(),
+             pack_options: Default::default(),
+             pack_configs: Default::default(),
+@@ -2201,6 +2205,13 @@ impl OptionsUi {
+         self.selected_key = None;
+     }
+     fn push(&mut self, page: Page) {
++        // The executable's own language screen stands in for the Language page.
++        if page == Page::Language && !crate::options_shell::language_shown() {
++            if self.stack.is_empty() {
++                self.push(Page::Main);
++            }
++            return;
++        }
+         self.stack.push(page);
+         self.scroll = 0.0;
+         self.scrollbar_drag_y = None;
+@@ -2231,6 +2242,9 @@ impl OptionsUi {
+         if let Some(at) = Self::graphics_page(page) {
+             self.graphics.show(at);
+         }
++        if let Some(at) = crate::options_shell::sheet_of(page) {
++            self.options.show(at);
++        }
+         if let Some(at) = Self::controller_page(page) {
+             self.controller.show(at);
+         }
+@@ -2249,6 +2263,7 @@ impl OptionsUi {
+     /// through them, so no input path can miss one.
+     fn shell(&self) -> Option<&dyn shell::Hosted> {
+         match self.page() {
++            page if crate::options_shell::sheet_of(page).is_some() => Some(&self.options),
+             Page::Extras => Some(&self.extras),
+             page if Self::graphics_page(page).is_some() => Some(&self.graphics),
+             page if Self::controller_page(page).is_some() => Some(&self.controller),
+@@ -2258,7 +2273,11 @@ impl OptionsUi {
+     }
+     fn shell_mut(&mut self) -> Option<&mut dyn shell::Hosted> {
+         self.graphics.screen.output = self.output;
++        self.options.screen.split_guest = self.split_guest;
++        self.options.screen.in_world = self.in_world;
++        self.options.screen.mods_live.clone_from(&self.mods_live);
+         match self.page() {
++            page if crate::options_shell::sheet_of(page).is_some() => Some(&mut self.options),
+             Page::Extras => Some(&mut self.extras),
+             page if Self::graphics_page(page).is_some() => Some(&mut self.graphics),
+             page if Self::controller_page(page).is_some() => Some(&mut self.controller),
+@@ -2276,6 +2295,7 @@ impl OptionsUi {
+     fn shell_framebuffers(&mut self) {
+         self.graphics.screen.framebuffer = self.framebuffer;
+         self.controller.screen.framebuffer = self.framebuffer;
++        self.options.screen.framebuffer = self.framebuffer;
+     }
+     /// Who and what Controller Settings is about: the game sets it before each draw.
+     pub fn set_controller_context(&mut self, context: crate::controller_ui::Context) {
+diff --git a/crates/horizon-client-render/src/settings_shell.rs b/crates/horizon-client-render/src/settings_shell.rs
+index 55402c00882fd92cba8bd53d1b37584eae5b1726..77636772ac20421f26d79d37d08a6c19f29e716e 100644
+--- a/crates/horizon-client-render/src/settings_shell.rs
++++ b/crates/horizon-client-render/src/settings_shell.rs
+@@ -244,7 +244,7 @@ pub(crate) fn backdrop(batch: &mut HudBatch, atlas: &HudAtlas, in_world: bool) {
+ pub(crate) fn mark(batch: &mut HudBatch, atlas: &HudAtlas, cols: &Columns, title: &str) {
+     let (x, y) = (cols.side_x, cols.side_y);
+     style::fill(batch, atlas, [x, y + 2.0, 6.0, 6.0], style::accent());
+-    let horizon = Text::literal("Horizon");
++    let horizon = Text::literal(crate::options_shell::brand());
+     batch.text_styled(atlas, &horizon, x + 10.0, y, style::WHITE, true);
+     let title = Text::literal(title);
+     batch.text_styled(atlas, &title, x, y + 10.0, style::muted(), true);
+@@ -1095,6 +1095,9 @@ pub(crate) enum Value {
+     Read(String),
+     /// A button across the row.
+     Press,
++    /// A row that opens something (another page, another screen): its name, and at its right
++    /// what it opens or a chevron, drawn as a value to read; a press does what the screen says.
++    Open(String),
+     /// A line to read, which no focus reaches (unlike `Read`) and nothing presses.
+     Note,
+ }
+@@ -1275,9 +1278,10 @@ impl<R> Row<R> {
+             } else {
+                 lang::get_or("Off", "Off")
+             }),
+-            Value::Choice(text) | Value::Slider { text, .. } | Value::Read(text) => {
+-                Some(text.clone())
+-            }
++            Value::Choice(text)
++            | Value::Slider { text, .. }
++            | Value::Read(text)
++            | Value::Open(text) => Some(text.clone()),
+             Value::Binding(binding) => Some(binding.text()),
+             Value::Press | Value::Note => None,
+         }
+@@ -1600,6 +1604,9 @@ pub(crate) struct Shell<S: Screen> {
+     /// The page list as last drawn: what a press or a key picks is what is on the screen (the
+     /// collapsed row's arrows sit either side of a name as wide as the font draws it).
+     drawn: Option<PageList<S::Page>>,
++    /// The first page the list shows when it scrolls rather than collapses
++    /// (`options_shell::pages_scroll`).
++    page_first: std::cell::Cell<usize>,
+ }
+ impl<S: Screen + Default> Default for Shell<S> {
+     fn default() -> Self {
+@@ -1624,6 +1631,7 @@ impl<S: Screen + Default> Default for Shell<S> {
+             path: Vec::new(),
+             pending: false,
+             drawn: None,
++            page_first: std::cell::Cell::new(0),
+         }
+     }
+ }
+@@ -1831,11 +1839,33 @@ impl<S: Screen> Shell<S> {
+             .iter()
+             .rposition(|p| p.heading.is_some())
+             .unwrap_or(0);
+-        let collapse = atlas.filter(|_| listed.len() + headings > cols.page_room());
++        let room = cols.page_room();
+         let mut list = PageList {
+             lit: self.lit(view),
+             ..PageList::default()
+         };
++        // The executable may want every page in the column, scrolled, never the collapsed row.
++        if crate::options_shell::pages_scroll() && listed.len() + headings > room && room > 0 {
++            let n = listed.len();
++            let mut first = self.page_first.get().min(n.saturating_sub(room));
++            // The page the keyboard or a controller is on stays in view.
++            if let Some(Target::Page(page)) = self.focus
++                && let Some(i) = listed.iter().position(|p| p.id == page)
++            {
++                if i < first {
++                    first = i;
++                } else if i >= first + room {
++                    first = i + 1 - room;
++                }
++            }
++            self.page_first.set(first);
++            for page in listed.iter().skip(first).take(room) {
++                list.places.push((page.id, cols.page(list.used), Part::Tab));
++                list.used += 1;
++            }
++            return list;
++        }
++        let collapse = atlas.filter(|_| listed.len() + headings > room);
+         for (i, page) in listed.iter().enumerate() {
+             if let Some(text) = &page.heading {
+                 list.headings.push((text.clone(), cols.page(list.used)));
+@@ -2153,7 +2183,7 @@ impl<S: Screen> Shell<S> {
+         let label = row.label(value.as_deref());
+         let focused = self.shows_focus(Target::Row(row.id));
+         let hint = self.strip_text(row);
+-        if let Value::Read(value) = &row.value {
++        if let Value::Read(value) | Value::Open(value) = &row.value {
+             let view = (label.as_str(), row.name.as_str(), value.as_str());
+             read_row(batch, atlas, cols, y, view, (hover, focused));
+             crate::widgets::last_narratable(|n| n.hint = Some(hint.clone()));
+@@ -2469,6 +2499,27 @@ impl<S: Screen + Default> Hosted for Shell<S> {
+         at: (f32, f32),
+         amount: f32,
+     ) -> Vec<Output> {
++        // The wheel over a page list that scrolls moves it a page at a time.
++        if crate::options_shell::pages_scroll() && amount != 0.0 {
++            let view = self.view(s, size);
++            let cols = &view.cols;
++            if at.0 >= cols.side_x
++                && at.0 < cols.side_x + style::CONTROL_W
++                && at.1 < cols.button(1)[1]
++            {
++                let n = view.pages.iter().filter(|p| p.listed).count();
++                let room = cols.page_room().max(1);
++                let first = self.page_first.get();
++                let next = if amount > 0.0 {
++                    first.saturating_sub(1)
++                } else {
++                    (first + 1).min(n.saturating_sub(room))
++                };
++                self.page_first.set(next);
++                self.drawn = None;
++                return Vec::new();
++            }
++        }
+         if amount != 0.0 && s.extras.wheel_cycles_settings {
+             let view = self.view(s, size);
+             if let Some((row, _)) = self.row_at(&view, at).filter(|(row, _)| row.live)
+diff --git a/crates/horizon-client/src/client_lib.rs b/crates/horizon-client/src/client_lib.rs
+index e2804dfeb7413b3b92f651e5b67107e914e2f1cd..2ffd02d61b4f8b95951958045f4fdeb2ce5f7c4d 100644
+--- a/crates/horizon-client/src/client_lib.rs
++++ b/crates/horizon-client/src/client_lib.rs
+@@ -19,13 +19,13 @@ pub use horizon_client_render::{
+     hdr_calibration, hud, hud_kit, hud_layout, hud_overlays, inventory_effects, java_text,
+     jigsaw_block, json_folder, level_loading, light, lod, logging, menu_blur, menu_style, mesher,
+     minimap, mipmap, mod_browser, mod_list, model_library, models, multiline_edit, native_emissive,
+-    options_file, options_fixes, options_ui, overlay, pack_browser, pack_formats, pack_hooks,
+-    pack_palette, pack_screen, packs, pad_cursor, pad_glyph, par, particles, poi_sections,
+-    polytone_creative_tabs, polytone_post, post_chain, potent_sulfur, preedit, providers, pvp,
+-    pvp_hud, random_source, screen_draw, screen_effects, sculk, section_mask, server_terrain,
+-    settings, shader_options, shader_pack_list, signs, skins, social, sound_engine, sound_events,
+-    sound_preview, spans, split_layout, split_map, split_profiles, sprites, streaming,
+-    structure_block, tab_list, terrain_model, test_block, test_instance_block, testgen,
++    options_file, options_fixes, options_shell, options_ui, overlay, pack_browser, pack_formats,
++    pack_hooks, pack_palette, pack_screen, packs, pad_cursor, pad_glyph, par, particles,
++    poi_sections, polytone_creative_tabs, polytone_post, post_chain, potent_sulfur, preedit,
++    providers, pvp, pvp_hud, random_source, screen_draw, screen_effects, sculk, section_mask,
++    server_terrain, settings, shader_options, shader_pack_list, signs, skins, social, sound_engine,
++    sound_events, sound_preview, spans, split_layout, split_map, split_profiles, sprites,
++    streaming, structure_block, tab_list, terrain_model, test_block, test_instance_block, testgen,
+     title_edition, trims, ui, vault, weather, widgets, world, worldborder, zip,
+ };
+ pub mod attack_strength;
+-- 
+2.49.0.windows.1
+

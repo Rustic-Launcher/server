@@ -1,0 +1,807 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: BouBou <69978359+BouBouw@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 23:00:00 +0100
+Subject: [PATCH] rustic: menu text seam and client screen helpers
+
+A menu text seam: Skin::text, asked by HudBatch::text_styled inside
+ui::skin::menu_text() scopes the game opens around the screens it draws as menus
+(the title's screens, options, pause, death, stats, the connection and loading
+screens, prompts; never the HUD, chat, containers, signs or books), with each
+character's advance in the game's font so layouts never move. Client helpers for a
+mod that draws the title's lists itself: world_entries(), world_icon(folder),
+server_entries() (pings, MOTD, players, icon, LAN worlds), title_select(index) and
+press_at(x, y) (a click marked as made up, so the screens' mouse hooks skip it),
+the writes queued and run in idle. Rustic ADR 0014, U17.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+diff --git a/crates/horizon-client-render/src/hud.rs b/crates/horizon-client-render/src/hud.rs
+index 6920f8385ac2f05e19817cc5004722e16546ae78..11dfff7ace61b4612bdc56e7c1cd4f3808f7ae4b 100644
+--- a/crates/horizon-client-render/src/hud.rs
++++ b/crates/horizon-client-render/src/hud.rs
+@@ -2154,6 +2154,27 @@ impl HudBatch {
+         color: u32,
+         shadow: bool,
+     ) -> f32 {
++        // A menu's text may be set by the widgets' skin (`ui::skin::menu_text`), which keeps the
++        // advances of the game's font.
++        if crate::ui::skin::menu_text_on() {
++            let resolved = text.resolved();
++            let visual = crate::bidi::visual(&resolved);
++            let advances: Vec<f32> = visual
++                .chars()
++                .map(|(c, style)| atlas.font.advance(c, style))
++                .collect();
++            let line = crate::ui::skin::TextLine {
++                text: &*visual,
++                advances: &advances,
++                x,
++                y,
++                color,
++                shadow,
++            };
++            if crate::ui::skin::text(self, atlas, &line) {
++                return advances.iter().sum();
++            }
++        }
+         self.styled_text(atlas, text, x, y, color, shadow, false, None)
+     }
+     /// `text_styled` for text drawn in the world (`TextRenderable.render`
+diff --git a/crates/horizon-client-render/src/ui/skin.rs b/crates/horizon-client-render/src/ui/skin.rs
+index 51879dfd37dc92f96ccc6d9e6fb8c32a4f91ac75..0887874e4b523bcf49cf0957c9fa27b07eed233f 100644
+--- a/crates/horizon-client-render/src/ui/skin.rs
++++ b/crates/horizon-client-render/src/ui/skin.rs
+@@ -9,6 +9,12 @@
+ //! `HudBatch::sprite_scaled` (check boxes, a station's buttons) and the title's own buttons
+ //! (`title.rs`, drawn as two halves of the sprite) ask it too.
+ //!
++//! The rest of a menu screen's text (titles, list rows, descriptions, the lines a screen sets
++//! itself with `HudBatch::text_styled`) is asked too, but only while the game draws a menu
++//! ([`menu_text`]: the title's screens, options, the pause menu, the connection and loading
++//! screens, prompts); the HUD, the chat, containers, signs and books never are. The skin gets
++//! each glyph's vanilla advance so it keeps the screen's layout.
++//!
+ //! What the skin does not draw is drawn exactly as before, so a skin may handle as few sprites as
+ //! it likes; with none installed nothing changes. Only the drawing is the skin's: where a widget
+ //! is, what it records for the narrator and the controller, its hit box and what a click does
+@@ -16,6 +22,7 @@
+ //! must not panic (the game does not catch it).
+ use crate::hud::{HudAtlas, HudBatch};
+ use crate::text::Text;
++use std::cell::Cell;
+ use std::sync::OnceLock;
+ 
+ /// Where a centred label goes, in GUI pixels.
+@@ -80,6 +87,29 @@ pub trait Skin: Send + Sync {
+     ) -> bool {
+         false
+     }
++
++    /// Draws a menu screen's line `line` and returns true; false leaves it to the game's font.
++    /// Only asked inside [`menu_text`]. The game goes on as if its own font had drawn it: the
++    /// text that follows starts at `line.x` plus the sum of `line.advances`.
++    fn text(&self, _batch: &mut HudBatch, _atlas: &HudAtlas, _line: &TextLine<'_>) -> bool {
++        false
++    }
++}
++
++/// A line of a menu screen's text, as `HudBatch::text_styled` would draw it.
++#[derive(Clone, Copy, Debug)]
++pub struct TextLine<'a> {
++    /// The text, resolved and in visual order (right-to-left runs already reversed).
++    pub text: &'a Text,
++    /// Each character's advance in the game's font, in GUI pixels (bold included): where vanilla
++    /// puts the next one.
++    pub advances: &'a [f32],
++    /// The left of the first glyph and the top of the 9-pixel line, in GUI pixels.
++    pub x: f32,
++    pub y: f32,
++    /// The default colour (the HUD's ABGR; a style's own colour wins) and its alpha.
++    pub color: u32,
++    pub shadow: bool,
+ }
+ 
+ static SKIN: OnceLock<&'static dyn Skin> = OnceLock::new();
+@@ -114,6 +144,46 @@ pub fn sprite(
+     get().is_some_and(|skin| skin.sprite(batch, atlas, sprite, rect, color))
+ }
+ 
++thread_local! {
++    /// How many [`menu_text`] scopes are open on this thread.
++    static MENU_TEXT: Cell<u32> = const { Cell::new(0) };
++}
++
++/// While the returned guard lives, the text this thread draws is a menu's: `HudBatch::text_styled`
++/// asks the skin ([`Skin::text`]) before its own font. The game opens one around the screens it
++/// draws as menus; scopes nest.
++#[must_use = "the scope ends when the guard is dropped"]
++pub fn menu_text() -> MenuText {
++    MENU_TEXT.set(MENU_TEXT.get().saturating_add(1));
++    MenuText(())
++}
++
++/// The scope [`menu_text`] opened.
++pub struct MenuText(());
++
++impl Drop for MenuText {
++    fn drop(&mut self) {
++        MENU_TEXT.set(MENU_TEXT.get().saturating_sub(1));
++    }
++}
++
++/// Whether a skin is installed and the text drawn now is a menu's.
++pub fn menu_text_on() -> bool {
++    MENU_TEXT.get() > 0 && get().is_some()
++}
++
++/// Whether the skin drew the menu line `line` (always false outside [`menu_text`]). The skin's
++/// own drawing is outside the scope, so it cannot come back here.
++pub fn text(batch: &mut HudBatch, atlas: &HudAtlas, line: &TextLine<'_>) -> bool {
++    if !menu_text_on() {
++        return false;
++    }
++    let depth = MENU_TEXT.replace(0);
++    let drawn = get().is_some_and(|skin| skin.text(batch, atlas, line));
++    MENU_TEXT.set(depth);
++    drawn
++}
++
+ /// Whether the skin drew the label `text` at `at`.
+ pub fn label(
+     batch: &mut HudBatch,
+@@ -163,6 +233,14 @@ mod tests {
+             batch.fill(atlas, at.left, at.y, at.right - at.left, 9.0, 0xFF00_FF00);
+             true
+         }
++        fn text(&self, batch: &mut HudBatch, atlas: &HudAtlas, line: &TextLine<'_>) -> bool {
++            if line.text.plain() != "menu probe" {
++                return false;
++            }
++            let width: f32 = line.advances.iter().sum();
++            batch.fill(atlas, line.x, line.y, width, 9.0, 0xFF0F_F0F0);
++            true
++        }
+     }
+     static PROBE_SKIN: Probe = Probe;
+ 
+@@ -253,4 +331,42 @@ mod tests {
+         );
+         assert!(other.vertices.iter().all(|v| v.color != 0xFF00_FF00));
+     }
++
++    #[test]
++    fn menu_text_is_the_skins_only_inside_a_menu_scope() {
++        install(&PROBE_SKIN);
++        let atlas = atlas_with(&[]);
++        let line = Text::literal("menu probe");
++        let vanilla_width = {
++            let mut b = HudBatch::new([640, 480]);
++            b.text_styled(&atlas, &line, 0.0, 0.0, u32::MAX, false)
++        };
++        // Outside a scope (the HUD, the chat): the game's font.
++        let mut hud = HudBatch::new([640, 480]);
++        hud.text_styled(&atlas, &line, 5.0, 5.0, u32::MAX, true);
++        assert!(hud.vertices.iter().all(|v| v.color != 0xFF0F_F0F0));
++        // Inside: the skin's, and the advance the game's font would have taken.
++        let mut menu = HudBatch::new([640, 480]);
++        let advance = {
++            let _scope = menu_text();
++            assert!(menu_text_on());
++            {
++                let _nested = menu_text();
++            }
++            assert!(menu_text_on());
++            menu.text_styled(&atlas, &line, 5.0, 5.0, u32::MAX, true)
++        };
++        assert!(!menu_text_on());
++        assert_eq!(menu.vertices.len(), 6);
++        assert!(menu.vertices.iter().all(|v| v.color == 0xFF0F_F0F0));
++        assert!((advance - vanilla_width).abs() < 1e-3);
++        // A line the skin leaves is the game's, in a scope too.
++        let mut other = HudBatch::new([640, 480]);
++        {
++            let _scope = menu_text();
++            other.text_styled(&atlas, &Text::literal("Options"), 0.0, 0.0, u32::MAX, false);
++        }
++        assert!(!other.vertices.is_empty());
++        assert!(other.vertices.iter().all(|v| v.color != 0xFF0F_F0F0));
++    }
+ }
+diff --git a/crates/horizon-client/src/game.rs b/crates/horizon-client/src/game.rs
+index b57bd07e9cdf885e67a1ff28e43e17ae1f8b2943..ec81b270e47d5bab8b3e44c1bff7429078a305d5 100644
+--- a/crates/horizon-client/src/game.rs
++++ b/crates/horizon-client/src/game.rs
+@@ -273,6 +273,7 @@ mod native_client_entities;
+ mod native_client_menus;
+ mod native_client_particles;
+ mod native_client_particles_fixture;
++pub mod native_client_screens;
+ pub mod native_client_services;
+ mod native_client_world;
+ mod native_components;
+@@ -2951,6 +2952,9 @@ struct Game<'a> {
+     /// Languages, joins and server list additions native mods asked for (`native_client_menus`),
+     /// for `idle`.
+     menu_requests: std::cell::RefCell<Vec<native_client_menus::MenuRequest>>,
++    /// Rows chosen, presses and saved server changes native mods asked for
++    /// (`native_client_screens`), for `idle`.
++    screen_requests: std::cell::RefCell<Vec<native_client_screens::ScreenRequest>>,
+     /// `ServerChunkCache.lastSpawnState` of each level: its spawnable chunks
+     /// and each `MobCategory`'s count.
+     spawn_counts: HashMap<Dim, (i32, [i32; 8])>,
+@@ -5828,14 +5832,18 @@ impl Game<'_> {
+         } else {
+             self.hud_layers(size)
+         };
+-        // Vanilla's confirmation replaces the dialog as the screen.
+-        if self.command_prompt.is_none() {
+-            self.draw_dialog(&mut batch);
+-        }
+-        self.draw_pack_prompt(&mut batch);
+-        self.draw_code_of_conduct(&mut batch);
+-        self.draw_link_prompt(&mut batch);
+-        self.draw_command_prompt(&mut batch);
++        {
++            // The server's dialogs and the prompts are menus (`ui::skin::menu_text`).
++            let _menu = horizon_client::ui::skin::menu_text();
++            // Vanilla's confirmation replaces the dialog as the screen.
++            if self.command_prompt.is_none() {
++                self.draw_dialog(&mut batch);
++            }
++            self.draw_pack_prompt(&mut batch);
++            self.draw_code_of_conduct(&mut batch);
++            self.draw_link_prompt(&mut batch);
++            self.draw_command_prompt(&mut batch);
++        }
+         // The ToastManager draws over every screen, the title and the
+         // options included: the narrator's toast follows the player there.
+         self.draw_narrator_toast(&mut batch);
+@@ -5873,7 +5881,11 @@ impl Game<'_> {
+                 self.flush_skin_slots();
+                 self.update_remote_skins();
+             }
+-            self.draw_options(&mut batch);
++            {
++                // A menu: the widgets' skin may set its text (`ui::skin::menu_text`).
++                let _menu = horizon_client::ui::skin::menu_text();
++                self.draw_options(&mut batch);
++            }
+             self.fire_screen_render_post(&mut batch);
+             self.draw_split_hud(&mut batch, true);
+             return batch;
+@@ -5900,7 +5912,10 @@ impl Game<'_> {
+         }
+         if self.screen == Screen::DebugOptions && self.title.is_some() {
+             // DebugOptionsScreen replaces the title; no level HUD is behind it.
+-            self.draw_debug_options(&mut batch);
++            {
++                let _menu = horizon_client::ui::skin::menu_text();
++                self.draw_debug_options(&mut batch);
++            }
+             self.fire_screen_render_post(&mut batch);
+             self.draw_toasts(&mut batch, false);
+             self.draw_tutorial_toasts(&mut batch, false);
+@@ -5913,6 +5928,7 @@ impl Game<'_> {
+             // draws the toast manager on every screen, so a pack download or a
+             // resource-reload failure still shows on the title (#4428).
+             if let Some(title) = &self.title {
++                let _menu = horizon_client::ui::skin::menu_text();
+                 title.draw_with_items(
+                     &self.gui.atlas,
+                     Some(&self.pack.item_renderer),
+@@ -5936,7 +5952,12 @@ impl Game<'_> {
+         let _ = atlas_ptr;
+         // The ToastManager draws over every screen: a server's packs
+         // download while the connection screen shows.
+-        if self.remote_overlay(&mut batch) {
++        // The connection, loading and reconfiguring screens are menus (`ui::skin::menu_text`).
++        let remote = {
++            let _menu = horizon_client::ui::skin::menu_text();
++            self.remote_overlay(&mut batch)
++        };
++        if remote {
+             self.draw_pack_toasts(&mut batch, false);
+             self.draw_music_toast(&mut batch, false);
+             return batch;
+@@ -6219,6 +6240,22 @@ impl Game<'_> {
+         } else {
+             self.screen
+         };
++        // The screens that are menus (not the HUD's, a container's or an editor's): the
++        // widgets' skin may set their text (`ui::skin::menu_text`).
++        let _menu = matches!(
++            screen,
++            Screen::Paused
++                | Screen::Dead
++                | Screen::Stats
++                | Screen::WorldOptions
++                | Screen::Friends
++                | Screen::Social
++                | Screen::ServerLinks
++                | Screen::ConfirmLink
++                | Screen::DialogWarning
++                | Screen::DebugOptions
++        )
++        .then(horizon_client::ui::skin::menu_text);
+         match screen {
+             Screen::Paused if self.pause_menu => self.draw_pause_menu(&mut batch),
+             // PauseScreen(false): only its title, at the top.
+@@ -6269,6 +6306,7 @@ impl Game<'_> {
+             Screen::Chat => self.draw_chat_screen(&mut batch),
+             Screen::Playing | Screen::Options | Screen::Win => {}
+         }
++        drop(_menu);
+         // ScreenEvent.Render.Post: the open screen has drawn itself and its
+         // tooltips, so a native mod draws over it here. Never `Playing`: the
+         // prompts, books and sign editors drawn over gameplay keep it, draw
+@@ -12045,6 +12083,7 @@ impl<'a> Game<'a> {
+             title_widgets_hidden: Default::default(),
+             title_open_request: Default::default(),
+             menu_requests: Default::default(),
++            screen_requests: Default::default(),
+             spawn_counts: HashMap::new(),
+             pause_menu: true,
+             pause_focus: None,
+diff --git a/crates/horizon-client/src/game/window_handler.rs b/crates/horizon-client/src/game/window_handler.rs
+index df3d0348d5e3f33a74dcf020baa1a82a459d6fc8..fcb99b99d8b66c3e8b4a12fb00d18697ad4233cd 100644
+--- a/crates/horizon-client/src/game/window_handler.rs
++++ b/crates/horizon-client/src/game/window_handler.rs
+@@ -228,6 +228,8 @@ impl Game<'_> {
+             event_loop.exit();
+             return;
+         }
++        // Rows, presses and saved servers native mods asked for (`native_client_screens`).
++        self.run_screen_requests(event_loop);
+         horizon_client::spans::time("server_packs", || self.tick_server_packs());
+         horizon_client::spans::time("control", || self.poll_control(event_loop));
+         if self.pending_save.is_some() {
+diff --git a/crates/horizon-client/src/mod_api.rs b/crates/horizon-client/src/mod_api.rs
+index 1f32b44ad36ebc1bd0aeaae807730a343a150769..f56d8c11f146ff52f4ec1ff1ca25a5acda98a6b9 100644
+--- a/crates/horizon-client/src/mod_api.rs
++++ b/crates/horizon-client/src/mod_api.rs
+@@ -32,6 +32,9 @@ pub use crate::game::NativeInventoryKind;
+ pub use crate::game::NativeSidebar;
+ pub use crate::game::NativeSlotRole;
+ pub use crate::game::native_block_entity_draw::{BlockEntityDraw, CubeFace};
++pub use crate::game::native_client_screens::{
++    NativeServerEntry, NativeServerStatus, NativeWorldEntry,
++};
+ pub use crate::game::native_client_services::{
+     NativeClientEntity, NativeClientHead, NativeClientItem, NativeClientProfile, NativeClientState,
+     NativeScreenKind, NativeWorldId,
+diff --git a/crates/horizon-client/src/game/native_client_screens.rs b/crates/horizon-client/src/game/native_client_screens.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..89f00dee55191932d4c45f5187c0fb00327179dd
+--- /dev/null
++++ b/crates/horizon-client/src/game/native_client_screens.rs
+@@ -0,0 +1,391 @@
++//! For a client mod that draws the title's lists and dialogs itself (cards, forms, panels of its
++//! own over the game's screens): the world list and the server list as data, the world icons,
++//! choosing a row as a click on it does, a press anywhere on the open screen as the mouse would
++//! give it (so a mod's own buttons can press the screen's own: Join, Edit, Delete...).
++//! API @API:client_screens@.
++use super::*;
++use horizon_client::multiplayer::{Ping, Screen as Servers};
++use horizon_client::text::Text;
++use horizon_client::title::Mode;
++use std::sync::Arc;
++use winit::{
++    dpi::PhysicalPosition,
++    event::{DeviceId, ElementState, MouseButton, WindowEvent},
++};
++
++/// One world of the world list (`SelectWorldScreen`), as the list knows it.
++#[derive(Clone, Debug, PartialEq)]
++pub struct NativeWorldEntry {
++    /// Its folder in `saves`, which identifies it.
++    pub folder: String,
++    pub name: String,
++    /// `GameType`: 0 survival, 1 creative, 2 adventure, 3 spectator.
++    pub game_mode: i32,
++    pub hardcore: bool,
++    /// Commands (cheats) allowed.
++    pub commands: bool,
++    /// When it was last played, in milliseconds since the Unix epoch.
++    pub last_played: i64,
++    /// The game version that saved it (`Version.Name`), empty when unknown.
++    pub version: String,
++    /// Another running game has it open (`LevelSummary.isLocked`).
++    pub locked: bool,
++    /// Its `level.dat` did not read: opening it offers recovery.
++    pub corrupted: bool,
++    /// The saved version's name when another series saved it (not playable here).
++    pub incompatible: Option<String>,
++    pub experimental: bool,
++    /// Opening it upgrades its files, or a newer version saved it: a backup is offered first.
++    pub needs_backup: bool,
++    /// The list's selected row.
++    pub selected: bool,
++}
++
++/// How a server of the server list answered its ping.
++#[derive(Clone, Debug, PartialEq)]
++pub enum NativeServerStatus {
++    /// Asked, no answer yet.
++    Pinging,
++    /// It answered with this game's protocol.
++    Online {
++        ping_ms: u32,
++        /// Online and max players, when the status says.
++        players: Option<(i64, i64)>,
++        version: String,
++    },
++    /// It answered with another protocol (`ServerData.State.INCOMPATIBLE`).
++    Incompatible {
++        players: Option<(i64, i64)>,
++        /// The server's version, as the list shows it in red.
++        version: Text,
++    },
++    /// It could not be reached; the reason.
++    Unreachable(String),
++    /// A world opened to the local network (no ping).
++    Lan,
++}
++
++/// One row of the server list (`ServerSelectionList`): a saved server or a LAN world.
++#[derive(Clone, Debug)]
++pub struct NativeServerEntry {
++    pub name: String,
++    pub address: String,
++    /// A world announced on the local network (listed after the saved servers).
++    pub lan: bool,
++    /// The message of the day, styled; empty while pinging or unreachable.
++    pub motd: Text,
++    pub status: NativeServerStatus,
++    /// The players the status names (its sample), as the list's tooltip shows them.
++    pub player_list: Vec<Text>,
++    /// The server's icon, 64x64 RGBA, when it has one.
++    pub icon: Option<Arc<Vec<u8>>>,
++    /// Server Resource Packs: Some(true) enabled, Some(false) disabled, None prompt.
++    pub packs: Option<bool>,
++    /// The list's selected row.
++    pub selected: bool,
++}
++
++/// What a mod asked for, done between frames (the helpers get a read-only game).
++#[derive(Clone, Debug, PartialEq)]
++pub(super) enum ScreenRequest {
++    Select(usize),
++    Press(f32, f32),
++}
++
++/// Milliseconds since the Unix epoch.
++fn millis(t: std::time::SystemTime) -> i64 {
++    match t.duration_since(std::time::UNIX_EPOCH) {
++        Ok(d) => i64::try_from(d.as_millis()).unwrap_or(i64::MAX),
++        Err(e) => -i64::try_from(e.duration().as_millis()).unwrap_or(i64::MAX),
++    }
++}
++
++/// A world folder's plain name (no separator, no `..`): the only ones whose icon is read.
++fn plain_folder(folder: &str) -> bool {
++    !folder.is_empty()
++        && folder != "."
++        && folder != ".."
++        && !folder.contains(['/', '\\', ':'])
++        && !folder.contains("..")
++}
++
++/// What a saved server's ping says, as the list shows it.
++fn status_of(ping: Option<&Ping>) -> (NativeServerStatus, Text, Vec<Text>) {
++    match ping {
++        None | Some(Ping::Pinging) => (NativeServerStatus::Pinging, Text::empty(), Vec::new()),
++        Some(Ping::Ok {
++            motd,
++            players,
++            player_list,
++            ms,
++            version,
++        }) => (
++            NativeServerStatus::Online {
++                ping_ms: u32::try_from(*ms).unwrap_or(u32::MAX),
++                players: *players,
++                version: version.clone(),
++            },
++            motd.clone(),
++            player_list.clone(),
++        ),
++        Some(Ping::Incompatible {
++            motd,
++            players,
++            player_list,
++            version,
++        }) => (
++            NativeServerStatus::Incompatible {
++                players: *players,
++                version: version.clone(),
++            },
++            motd.clone(),
++            player_list.clone(),
++        ),
++        Some(Ping::Failed(reason)) => (
++            NativeServerStatus::Unreachable(reason.clone()),
++            Text::empty(),
++            Vec::new(),
++        ),
++    }
++}
++
++impl Game<'_> {
++    /// The world list's worlds as the open world list (`world_select`) has them, in its order
++    /// (the newest played first), whatever its search shows; empty on any other screen. Client
++    /// only. API @API:client_screens@.
++    pub(super) fn native_world_entries(&self) -> Vec<NativeWorldEntry> {
++        let Some(Mode::Select { worlds, selected }) = self.title.as_ref().map(|t| &t.mode) else {
++            return Vec::new();
++        };
++        worlds
++            .iter()
++            .enumerate()
++            .map(|(i, w)| NativeWorldEntry {
++                folder: w.folder.clone(),
++                name: w.name.clone(),
++                game_mode: w.game_mode,
++                hardcore: w.hardcore,
++                commands: w.commands,
++                last_played: millis(w.modified),
++                version: w.version.clone(),
++                locked: w.locked,
++                corrupted: w.corrupted,
++                incompatible: w.incompatible.clone(),
++                experimental: w.experimental,
++                needs_backup: w.file_fixing || w.downgrade,
++                selected: *selected == Some(i),
++            })
++            .collect()
++    }
++    /// The icon of world `folder` (its `icon.png`, as saved: a PNG), when it has one. Only a
++    /// folder's plain name is read, never a path. Client only. API @API:client_screens@.
++    pub(super) fn native_world_icon(&self, folder: &str) -> Option<Vec<u8>> {
++        if !plain_folder(folder) {
++            return None;
++        }
++        let path = self.title.as_ref()?.saves.join(folder).join("icon.png");
++        let size = std::fs::metadata(&path).ok()?.len();
++        // An icon is a 64x64 PNG; anything far larger is not one.
++        if size > 1 << 20 {
++            return None;
++        }
++        std::fs::read(path).ok()
++    }
++    /// The open server list's rows (`multiplayer`): the saved servers in the list's order with
++    /// their ping, then the worlds found on the local network; empty on any other screen.
++    /// Client only. API @API:client_screens@.
++    pub(super) fn native_server_entries(&self) -> Vec<NativeServerEntry> {
++        let Some(Mode::Multiplayer(Servers::List {
++            servers,
++            selected,
++            pings,
++            icons,
++            lan,
++            ..
++        })) = self.title.as_ref().map(|t| &t.mode)
++        else {
++            return Vec::new();
++        };
++        let pings = pings.lock().unwrap_or_else(|e| e.into_inner());
++        let icons = icons.lock().unwrap_or_else(|e| e.into_inner());
++        let mut out: Vec<NativeServerEntry> = servers
++            .iter()
++            .enumerate()
++            .map(|(i, s)| {
++                let (status, motd, player_list) = status_of(pings.get(&s.ip));
++                NativeServerEntry {
++                    name: s.name.clone(),
++                    address: s.ip.clone(),
++                    lan: false,
++                    motd,
++                    status,
++                    player_list,
++                    icon: icons.get(&s.ip).cloned(),
++                    packs: s.accept_textures,
++                    selected: *selected == Some(i),
++                }
++            })
++            .collect();
++        let saved = servers.len();
++        out.extend(
++            lan.games()
++                .into_iter()
++                .enumerate()
++                .map(|(k, g)| NativeServerEntry {
++                    name: horizon_client::lang::get_or("lanServer.title", "Minecraft World"),
++                    address: g.address,
++                    lan: true,
++                    motd: Text::literal(g.motd),
++                    status: NativeServerStatus::Lan,
++                    player_list: Vec::new(),
++                    icon: None,
++                    packs: None,
++                    selected: *selected == Some(saved + k),
++                }),
++        );
++        out
++    }
++    /// Selects row `index` of the title's open list as a click on it does (not a double click):
++    /// a world of [`Self::native_world_entries`] on the world list, a row of
++    /// [`Self::native_server_entries`] on the server list. Done before the next frame, before
++    /// any press asked after it. False on another screen or for a row the list does not have.
++    /// Client only. API @API:client_screens@.
++    pub(super) fn native_title_select(&self, index: usize) -> bool {
++        let rows = match self.title.as_ref().map(|t| &t.mode) {
++            Some(Mode::Select { worlds, .. }) => worlds.len(),
++            Some(Mode::Multiplayer(Servers::List { servers, lan, .. })) => {
++                servers.len() + lan.games().len()
++            }
++            _ => return false,
++        };
++        if index >= rows {
++            return false;
++        }
++        self.screen_requests
++            .borrow_mut()
++            .push(ScreenRequest::Select(index));
++        true
++    }
++    /// Presses the open screen at GUI point `(x, y)` with the left button, as the mouse would
++    /// (the pointer goes back where it was): a mod that draws a screen's buttons its own way
++    /// presses the screen's own with it. Done before the next frame; the screens' mouse hooks
++    /// do not hear it (it is not the mouse). False with no window or off the GUI. Client only.
++    /// API @API:client_screens@.
++    pub(super) fn native_press_at(&self, x: f32, y: f32) -> bool {
++        if !self.native_window() || !x.is_finite() || !y.is_finite() || x < 0.0 || y < 0.0 {
++            return false;
++        }
++        self.screen_requests
++            .borrow_mut()
++            .push(ScreenRequest::Press(x, y));
++        true
++    }
++    /// Runs what the helpers above queued, in order, between frames.
++    pub(super) fn run_screen_requests(&mut self, event_loop: &dyn EventLoopCtl) {
++        let requests = std::mem::take(&mut *self.screen_requests.borrow_mut());
++        for request in requests {
++            match request {
++                ScreenRequest::Select(index) => self.select_title_row(index),
++                ScreenRequest::Press(x, y) => self.press_screen(event_loop, x, y),
++            }
++        }
++    }
++    fn select_title_row(&mut self, index: usize) {
++        let Some(title) = self.title.as_mut() else {
++            return;
++        };
++        match &mut title.mode {
++            Mode::Select { worlds, selected } if index < worlds.len() => *selected = Some(index),
++            Mode::Multiplayer(Servers::List {
++                servers,
++                selected,
++                lan,
++                ..
++            }) if index < servers.len() + lan.games().len() => *selected = Some(index),
++            _ => {}
++        }
++    }
++    /// A left click at `(x, y)`, the pointer put back after it; marked as made up, so the
++    /// native mods' mouse hooks skip it (as the pad's clicks).
++    fn press_screen(&mut self, event_loop: &dyn EventLoopCtl, x: f32, y: f32) {
++        let Some(id) = self.window.as_ref().map(|w| w.id()) else {
++            return;
++        };
++        let Some(scale) = self
++            .renderer
++            .as_ref()
++            .map(|r| horizon_client::hud::HudBatch::new([r.config.width, r.config.height]).scale)
++        else {
++            return;
++        };
++        let back = self.cursor;
++        let at =
++            |(x, y): (f32, f32)| PhysicalPosition::new(f64::from(x * scale), f64::from(y * scale));
++        let device_id = DeviceId::dummy();
++        let was = std::mem::replace(&mut self.pad.menu.synthetic, true);
++        let mut events = vec![WindowEvent::CursorMoved {
++            device_id,
++            position: at((x, y)),
++        }];
++        for state in [ElementState::Pressed, ElementState::Released] {
++            events.push(WindowEvent::MouseInput {
++                device_id,
++                state,
++                button: MouseButton::Left,
++            });
++        }
++        events.push(WindowEvent::CursorMoved {
++            device_id,
++            position: at(back),
++        });
++        for event in events {
++            self.handle_window_event(event_loop, id, event, super::input_trace::InputOrigin::Game);
++        }
++        self.pad.menu.synthetic = was;
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn only_plain_world_folders_are_read() {
++        assert!(plain_folder("New World"));
++        assert!(plain_folder("Monde (2)"));
++        assert!(!plain_folder(""));
++        assert!(!plain_folder(".."));
++        assert!(!plain_folder("../other"));
++        assert!(!plain_folder("a/b"));
++        assert!(!plain_folder("a\\b"));
++        assert!(!plain_folder("C:"));
++    }
++
++    #[test]
++    fn pings_read_as_the_list_shows_them() {
++        let (s, motd, _) = status_of(None);
++        assert_eq!(s, NativeServerStatus::Pinging);
++        assert!(motd.plain().is_empty());
++        let ok = Ping::Ok {
++            motd: Text::literal("Hello"),
++            players: Some((3, 20)),
++            player_list: vec![Text::literal("Steve")],
++            ms: 42,
++            version: "26.3".into(),
++        };
++        let (s, motd, list) = status_of(Some(&ok));
++        assert_eq!(
++            s,
++            NativeServerStatus::Online {
++                ping_ms: 42,
++                players: Some((3, 20)),
++                version: "26.3".into()
++            }
++        );
++        assert_eq!(motd.plain(), "Hello");
++        assert_eq!(list.len(), 1);
++        let (s, _, _) = status_of(Some(&Ping::Failed("refused".into())));
++        assert_eq!(s, NativeServerStatus::Unreachable("refused".into()));
++        assert_eq!(millis(std::time::UNIX_EPOCH), 0);
++    }
++}
+diff --git a/tools/native-hook-fragments/client_screens.json b/tools/native-hook-fragments/client_screens.json
+new file mode 100644
+index 0000000000000000000000000000000000000000..fb317ca95c86ea1b05266498a22b5cd62a59ae84
+--- /dev/null
++++ b/tools/native-hook-fragments/client_screens.json
+@@ -0,0 +1,30 @@
++{
++  "hooks": [],
++  "helpers": [
++    {
++      "name": "world_entries",
++      "target": "horizon_client::game::native_client_screens::Game<'_>::native_world_entries"
++    },
++    {
++      "name": "world_icon",
++      "target": "horizon_client::game::native_client_screens::Game<'_>::native_world_icon"
++    },
++    {
++      "name": "server_entries",
++      "target": "horizon_client::game::native_client_screens::Game<'_>::native_server_entries"
++    },
++    {
++      "name": "title_select",
++      "target": "horizon_client::game::native_client_screens::Game<'_>::native_title_select"
++    },
++    {
++      "name": "press_at",
++      "target": "horizon_client::game::native_client_screens::Game<'_>::native_press_at"
++    }
++  ],
++  "rust_summary": "a client mod that draws the title's lists and dialogs itself: the world list and the server list as data (`native_world_entries`, `native_world_icon`, `native_server_entries`), choosing a row (`native_title_select`) and pressing the open screen as the mouse would (`native_press_at`), so its own buttons press the screen's.",
++  "doc_summary": "`native_world_entries()` gives the open world list's worlds (folder, name, game mode, hardcore, cheats, last played, version, locked, corrupted, incompatible, experimental, needs a backup, selected) and `native_world_icon(folder)` a world's `icon.png`. `native_server_entries()` gives the open server list's rows, saved servers then LAN worlds, with their ping (online with players, ping and version, incompatible, unreachable, pinging), styled MOTD, player sample, 64x64 RGBA icon and resource pack setting. `native_title_select(index)` selects a row as a click does and `native_press_at(x, y)` presses the open screen at a GUI point as the mouse would (the screens' mouse hooks do not hear it), both before the next frame. Bundles need \"hooks\": @API:client_screens@.",
++  "comments": [
++    "crates/horizon-client/src/game/native_client_screens.rs"
++  ]
++}
+-- 
+2.47.0
+
